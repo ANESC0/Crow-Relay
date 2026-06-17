@@ -171,7 +171,7 @@ chmod +x cloudflared && sudo mv cloudflared /usr/local/bin/
 cloudflared --version
 ```
 
-Si un numéro de version s'affiche, cloudflared est prêt. Crow-Relay peut alors être lancé avec le choix **2) Internet + Local** (Windows) ou `--tunnel` (ligne de commande).
+Si un numéro de version s'affiche, cloudflared est prêt. Crow-Relay peut alors être lancé avec le choix **2) Internet** dans le lanceur, ou `--tunnel` en ligne de commande.
 
 Aucun compte Cloudflare requis.
 

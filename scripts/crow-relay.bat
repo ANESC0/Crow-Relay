@@ -47,15 +47,13 @@ echo  ==========================================
 echo.
 echo  Etape 1 — Mode de connexion
 echo.
-echo    1) Local seulement  (meme Wi-Fi, pas besoin d'internet)
-echo    2) Local + Internet (Cloudflare Tunnel, accessible de partout)
-echo    3) Internet seulement (Cloudflare Tunnel, sans acces local)
+echo    1) Local     (meme Wi-Fi — connexion directe)
+echo    2) Internet  (Cloudflare Tunnel — accessible de partout)
 echo.
 set CROW_MODE=
-set /p CROW_MODE= Ton choix [1/2/3, defaut : 1] :
+set /p CROW_MODE= Ton choix [1/2, defaut : 1] :
 
 if "%CROW_MODE%"=="2" goto :STEP2_TUNNEL
-if "%CROW_MODE%"=="3" goto :STEP2_TUNNEL
 
 :: ══════════════════════════════════════════
 ::  Etape 2/3 — Chiffrement (LOCAL)
@@ -115,20 +113,17 @@ echo.
 set CROW_SIZE=
 set /p CROW_SIZE= Ton choix [1-4, defaut : 1] :
 
-set CROW_HOST=
-if "%CROW_MODE%"=="3" set CROW_HOST=--host 127.0.0.1
-
-set CROW_ARGS=--tunnel %CROW_HOST%
-if "%CROW_SIZE%"=="2" set CROW_ARGS=--tunnel %CROW_HOST% --max-mb 1000
-if "%CROW_SIZE%"=="3" set CROW_ARGS=--tunnel %CROW_HOST% --max-mb 2000
+set CROW_ARGS=--tunnel --host 127.0.0.1
+if "%CROW_SIZE%"=="2" set CROW_ARGS=--tunnel --host 127.0.0.1 --max-mb 1000
+if "%CROW_SIZE%"=="3" set CROW_ARGS=--tunnel --host 127.0.0.1 --max-mb 2000
 if "%CROW_SIZE%"=="4" goto :CUSTOM_TUNNEL
 goto :LAUNCH
 
 :CUSTOM_TUNNEL
 set CROW_MB=
 set /p CROW_MB= Limite en Mo (ex: 200) :
-set CROW_ARGS=--tunnel %CROW_HOST%
-if not "%CROW_MB%"=="" set CROW_ARGS=--tunnel %CROW_HOST% --max-mb %CROW_MB%
+set CROW_ARGS=--tunnel --host 127.0.0.1
+if not "%CROW_MB%"=="" set CROW_ARGS=--tunnel --host 127.0.0.1 --max-mb %CROW_MB%
 
 :: ══════════════════════════════════════════
 ::  Lancement

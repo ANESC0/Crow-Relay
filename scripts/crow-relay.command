@@ -36,15 +36,14 @@ echo "  =========================================="
 echo ""
 echo "  Etape 1 — Mode de connexion"
 echo ""
-echo "    1) Local seulement  (meme Wi-Fi, pas besoin d'internet)"
-echo "    2) Local + Internet (Cloudflare Tunnel, accessible de partout)"
-echo "    3) Internet seulement (Cloudflare Tunnel, sans acces local)"
+echo "    1) Local     (meme Wi-Fi — connexion directe)"
+echo "    2) Internet  (Cloudflare Tunnel — accessible de partout)"
 echo ""
-read -rp "  Ton choix [1/2/3, defaut : 1] : " CROW_MODE
+read -rp "  Ton choix [1/2, defaut : 1] : " CROW_MODE
 
 CROW_ARGS=()
 
-if [ "$CROW_MODE" = "2" ] || [ "$CROW_MODE" = "3" ]; then
+if [ "$CROW_MODE" = "2" ]; then
     # ══════════════════════════════════════════
     #  Etape 2/2 — Limite par fichier (TUNNEL)
     # ══════════════════════════════════════════
@@ -57,8 +56,7 @@ if [ "$CROW_MODE" = "2" ] || [ "$CROW_MODE" = "3" ]; then
     echo "    4) Personnalisee"
     echo ""
     read -rp "  Ton choix [1-4, defaut : 1] : " CROW_SIZE
-    CROW_ARGS+=(--tunnel)
-    [ "$CROW_MODE" = "3" ] && CROW_ARGS+=(--host 127.0.0.1)
+    CROW_ARGS+=(--tunnel --host 127.0.0.1)
     case "$CROW_SIZE" in
         2) CROW_ARGS+=(--max-mb 1000) ;;
         3) CROW_ARGS+=(--max-mb 2000) ;;
