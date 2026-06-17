@@ -136,7 +136,7 @@ Chaque appareil qui se connecte doit être **autorisé par l'hôte** avant de po
 
 Les autorisations sont mémorisées dans `devices.json` et survivent aux redémarrages de l'app.
 
-**Persistence par adresse MAC (LAN uniquement)** : si un appareil déjà approuvé vide ses cookies, il est reconnu automatiquement à sa prochaine demande d'accès grâce à son adresse MAC — sans intervention de l'hôte.
+**Pré-remplissage du nom par adresse MAC (LAN uniquement)** : si un appareil déjà approuvé vide ses cookies, son nom est pré-rempli automatiquement grâce à son adresse MAC — mais l'hôte doit quand même approuver à nouveau l'appareil.
 
 **Appareil refusé** : un appareil refusé peut cliquer "Redemander l'accès" pour repasser en file d'attente.
 
@@ -188,9 +188,7 @@ En mode tunnel, `--no-pin` et `--no-approval` sont refusés au démarrage — le
 - **Protection brute-force** : une IP est bloquée 10 minutes après 5 tentatives de PIN échouées.
 - En mode tunnel, le PIN et l'autorisation par appareil sont **obligatoires** et non contournables.
 
-> **Note** : Crow-Relay s'appuie sur le serveur intégré de Flask, adapté à un usage
-> personnel sur réseau de confiance. Pour une exposition prolongée, le placer
-> derrière un serveur WSGI de production (waitress, gunicorn).
+> **Note** : Crow-Relay est servi par **cheroot** (serveur WSGI de production, 8 threads), pas le serveur de développement de Flask.
 
 ---
 

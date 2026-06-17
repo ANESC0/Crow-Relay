@@ -62,7 +62,7 @@ if [ "$CROW_MODE" = "2" ]; then
         3) CROW_ARGS+=(--max-mb 2000) ;;
         4)
             read -rp "  Limite en Mo (ex: 200) : " CROW_MB
-            [ -n "$CROW_MB" ] && CROW_ARGS+=(--max-mb "$CROW_MB")
+            if [[ "$CROW_MB" =~ ^[0-9]+$ ]]; then CROW_ARGS+=(--max-mb "$CROW_MB"); fi
             ;;
     esac
 else

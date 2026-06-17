@@ -95,7 +95,8 @@ goto :LAUNCH
 set CROW_MB=
 set /p CROW_MB= Limite en Mo (ex: 200) :
 set CROW_ARGS=%CROW_HTTPS_ARG%
-if not "%CROW_MB%"=="" set CROW_ARGS=%CROW_HTTPS_ARG% --max-mb %CROW_MB%
+echo "%CROW_MB%"| findstr /r "^\"[0-9][0-9]*\"$" >nul 2>&1
+if %ERRORLEVEL%==0 set CROW_ARGS=%CROW_HTTPS_ARG% --max-mb %CROW_MB%
 goto :LAUNCH
 
 :: ══════════════════════════════════════════
@@ -123,7 +124,8 @@ goto :LAUNCH
 set CROW_MB=
 set /p CROW_MB= Limite en Mo (ex: 200) :
 set CROW_ARGS=--tunnel --host 127.0.0.1
-if not "%CROW_MB%"=="" set CROW_ARGS=--tunnel --host 127.0.0.1 --max-mb %CROW_MB%
+echo "%CROW_MB%"| findstr /r "^\"[0-9][0-9]*\"$" >nul 2>&1
+if %ERRORLEVEL%==0 set CROW_ARGS=--tunnel --host 127.0.0.1 --max-mb %CROW_MB%
 
 :: ══════════════════════════════════════════
 ::  Lancement

@@ -52,6 +52,10 @@ et peuvent être usurpées par n'importe quel appareil du LAN.
 **Conclusion : l'approbation par appareil protège contre les inconnus qui rejoignent le réseau,
 pas contre quelqu'un qui partage déjà ton Wi-Fi et est déterminé à contourner le système.**
 
+### Le QR code contient le PIN
+
+Le QR code affiché au démarrage embarque le PIN dans son URL. Partager une photo du QR code ou de l'écran revient à partager le PIN. Ne montre pas ton écran (ni ne prends de capture) pendant que le QR code est affiché.
+
 ### Le cookie d'appareil peut être copié
 L'identité d'un appareil est stockée dans un cookie navigateur. Si quelqu'un accède à ce cookie
 (session partagée, synchronisation de navigateur, accès physique à l'appareil), il peut se faire

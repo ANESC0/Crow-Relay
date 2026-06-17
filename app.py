@@ -251,7 +251,7 @@ def _is_same_network() -> bool:
     if client in ("127.0.0.1", "::1"):
         return True
     if not LOCAL_IP or not client:
-        return True
+        return False
     def _prefix(ip: str) -> str:
         parts = ip.split(".")
         return ".".join(parts[:3]) if len(parts) == 4 else ip
@@ -475,7 +475,7 @@ def access_status():
         rec = _devices.get(did)
         if rec is None:
             return jsonify({"status": "unknown"})
-        if now - rec.get("last_seen", 0) > 60:
+        if now - rec.get("last_seen", 0) > 300:
             rec["last_seen"] = now
             save_devices()
         snapshot = dict(rec)
@@ -716,7 +716,10 @@ def api_admin_clear_files():
         for name in os.listdir(SHARE_DIR):
             path = os.path.join(SHARE_DIR, name)
             try:
-                if os.path.isfile(path):
+                if os.path.islink(path):
+                    os.remove(path)
+                    deleted += 1
+                elif os.path.isfile(path):
                     os.remove(path)
                     deleted += 1
                 elif os.path.isdir(path):
@@ -981,6 +984,8 @@ def main() -> None:
             parser.error("--no-pin interdit en mode --tunnel (le PIN est obligatoire).")
         if args.no_approval:
             parser.error("--no-approval interdit en mode --tunnel (l'autorisation par appareil est obligatoire).")
+        if args.host == "0.0.0.0":
+            args.host = "127.0.0.1"
 
     # --max-mb a priorité sur CROW_RELAY_MAX_MB, qui a priorité sur les défauts.
     effective_max_mb = args.max_mb or (int(_max_mb) if _max_mb else 0)
