@@ -27,14 +27,14 @@ if [ $# -gt 0 ]; then
 fi
 
 # ══════════════════════════════════════════
-#  Etape 1/2 — Mode de connexion
+#  Etape 1 — Mode de connexion
 # ══════════════════════════════════════════
 echo ""
 echo "  =========================================="
 echo "   Crow-Relay"
 echo "  =========================================="
 echo ""
-echo "  Etape 1/2 — Mode de connexion"
+echo "  Etape 1 — Mode de connexion"
 echo ""
 echo "    1) Local seulement  (meme Wi-Fi, pas besoin d'internet)"
 echo "    2) Local + Internet (Cloudflare Tunnel, accessible de partout)"
@@ -42,16 +42,15 @@ echo "    3) Internet seulement (Cloudflare Tunnel, sans acces local)"
 echo ""
 read -rp "  Ton choix [1/2/3, defaut : 1] : " CROW_MODE
 
-# ══════════════════════════════════════════
-#  Etape 2/2 — Limite par fichier
-# ══════════════════════════════════════════
-echo ""
-echo "  Etape 2/2 — Limite de taille par fichier"
-echo ""
-
 CROW_ARGS=()
 
 if [ "$CROW_MODE" = "2" ] || [ "$CROW_MODE" = "3" ]; then
+    # ══════════════════════════════════════════
+    #  Etape 2/2 — Limite par fichier (TUNNEL)
+    # ══════════════════════════════════════════
+    echo ""
+    echo "  Etape 2/2 — Limite de taille par fichier"
+    echo ""
     echo "    1) 500 Mo           [recommande en tunnel]"
     echo "    2) 1 Go"
     echo "    3) 2 Go"
@@ -69,6 +68,24 @@ if [ "$CROW_MODE" = "2" ] || [ "$CROW_MODE" = "3" ]; then
             ;;
     esac
 else
+    # ══════════════════════════════════════════
+    #  Etape 2/3 — Chiffrement (LOCAL)
+    # ══════════════════════════════════════════
+    echo ""
+    echo "  Etape 2/3 — Chiffrement du trafic"
+    echo ""
+    echo "    1) HTTPS  [recommande — trafic chiffre, avertissement navigateur normal]"
+    echo "    2) HTTP   [sans chiffrement]"
+    echo ""
+    read -rp "  Ton choix [1/2, defaut : 1] : " CROW_HTTPS
+    [ "$CROW_HTTPS" != "2" ] && CROW_ARGS+=(--https)
+
+    # ══════════════════════════════════════════
+    #  Etape 3/3 — Limite par fichier (LOCAL)
+    # ══════════════════════════════════════════
+    echo ""
+    echo "  Etape 3/3 — Limite de taille par fichier"
+    echo ""
     echo "    1) Illimitee        [recommande en local]"
     echo "    2) 500 Mo"
     echo "    3) 1 Go"

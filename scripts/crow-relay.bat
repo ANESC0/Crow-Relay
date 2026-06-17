@@ -38,14 +38,14 @@ if not "%~1"=="" (
 )
 
 :: ══════════════════════════════════════════
-::  Etape 1/2 — Mode de connexion
+::  Etape 1 — Mode de connexion
 :: ══════════════════════════════════════════
 echo.
 echo  ==========================================
 echo   Crow-Relay
 echo  ==========================================
 echo.
-echo  Etape 1/2 — Mode de connexion
+echo  Etape 1 — Mode de connexion
 echo.
 echo    1) Local seulement  (meme Wi-Fi, pas besoin d'internet)
 echo    2) Local + Internet (Cloudflare Tunnel, accessible de partout)
@@ -58,11 +58,24 @@ if "%CROW_MODE%"=="2" goto :STEP2_TUNNEL
 if "%CROW_MODE%"=="3" goto :STEP2_TUNNEL
 
 :: ══════════════════════════════════════════
-::  Etape 2/2 — Limite par fichier (LOCAL)
+::  Etape 2/3 — Chiffrement (LOCAL)
 :: ══════════════════════════════════════════
-:STEP2_LOCAL
 echo.
-echo  Etape 2/2 — Limite de taille par fichier
+echo  Etape 2/3 — Chiffrement du trafic
+echo.
+echo    1) HTTPS  [recommande — trafic chiffre, avertissement navigateur normal]
+echo    2) HTTP   [sans chiffrement]
+echo.
+set CROW_HTTPS_ARG=--https
+set CROW_HTTPS=
+set /p CROW_HTTPS= Ton choix [1/2, defaut : 1] :
+if "%CROW_HTTPS%"=="2" set CROW_HTTPS_ARG=
+
+:: ══════════════════════════════════════════
+::  Etape 3/3 — Limite par fichier (LOCAL)
+:: ══════════════════════════════════════════
+echo.
+echo  Etape 3/3 — Limite de taille par fichier
 echo.
 echo    1) Illimitee        [recommande en local]
 echo    2) 500 Mo
@@ -73,17 +86,18 @@ echo.
 set CROW_SIZE=
 set /p CROW_SIZE= Ton choix [1-5, defaut : 1] :
 
-set CROW_ARGS=
-if "%CROW_SIZE%"=="2" set CROW_ARGS=--max-mb 500
-if "%CROW_SIZE%"=="3" set CROW_ARGS=--max-mb 1000
-if "%CROW_SIZE%"=="4" set CROW_ARGS=--max-mb 2000
+set CROW_ARGS=%CROW_HTTPS_ARG%
+if "%CROW_SIZE%"=="2" set CROW_ARGS=%CROW_HTTPS_ARG% --max-mb 500
+if "%CROW_SIZE%"=="3" set CROW_ARGS=%CROW_HTTPS_ARG% --max-mb 1000
+if "%CROW_SIZE%"=="4" set CROW_ARGS=%CROW_HTTPS_ARG% --max-mb 2000
 if "%CROW_SIZE%"=="5" goto :CUSTOM_LOCAL
 goto :LAUNCH
 
 :CUSTOM_LOCAL
 set CROW_MB=
 set /p CROW_MB= Limite en Mo (ex: 200) :
-if not "%CROW_MB%"=="" set CROW_ARGS=--max-mb %CROW_MB%
+set CROW_ARGS=%CROW_HTTPS_ARG%
+if not "%CROW_MB%"=="" set CROW_ARGS=%CROW_HTTPS_ARG% --max-mb %CROW_MB%
 goto :LAUNCH
 
 :: ══════════════════════════════════════════
