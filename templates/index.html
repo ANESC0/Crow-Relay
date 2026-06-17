@@ -255,7 +255,16 @@
       border: 2px solid var(--border-2); border-top-color: var(--accent);
       animation: spin 1s linear infinite; margin: 0 auto 8px;
     }
-    .modal-url { margin-top: 10px; font-size: 10.5px; color: var(--accent); font-family: ui-monospace, monospace; word-break: break-all; opacity: .85; }
+    .url-copy-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+    .modal-url { flex: 1; font-size: 10.5px; color: var(--accent); font-family: ui-monospace, monospace; word-break: break-all; opacity: .85; }
+    .copy-btn {
+      flex-shrink: 0; width: 28px; height: 28px;
+      background: var(--surface-2); border: 1px solid var(--border-2);
+      border-radius: 8px; color: var(--muted); cursor: pointer;
+      display: flex; align-items: center; justify-content: center; transition: all .15s;
+    }
+    .copy-btn svg { width: 13px; height: 13px; pointer-events: none; }
+    .copy-btn:hover { color: var(--accent-2); border-color: var(--accent-border); background: var(--accent-glow); }
     .no-conn-msg { color: var(--muted); font-size: 12px; line-height: 1.7; padding: 20px 0; }
     .no-conn-msg code { font-family: ui-monospace, monospace; color: var(--text); }
     .pin-box {
@@ -416,10 +425,12 @@
         <span class="logo-text">Crow-Relay</span>
       </div>
       <p class="tagline">Partage de fichiers — local ou internet</p>
+      {% if is_admin %}
       <button class="connect-btn" id="connectBtn">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
         Connecter un appareil
       </button>
+      {% endif %}
     </header>
 
     <div class="overlay" id="overlay">
@@ -434,7 +445,12 @@
         <div id="viewLan" style="display:none">
           <p class="hint">Scanne ce QR avec l'appareil photo du téléphone</p>
           <div class="qr-wrap"><img src="/qr.svg" alt="QR code" /></div>
-          <div class="modal-url">{{ lan_url }}</div>
+          <div class="url-copy-row">
+            <div class="modal-url">{{ lan_url }}</div>
+            <button class="copy-btn" id="copyLanBtn" title="Copier le lien">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+            </button>
+          </div>
         </div>
 
         <div id="viewTunnel" style="display:none">
@@ -443,7 +459,12 @@
             <div class="qr-loading" id="tunnelLoading"><div class="spinner-sm"></div>Tunnel en démarrage…</div>
             <img id="tunnelQrImg" alt="QR tunnel" style="display:none;width:100%;height:auto" />
           </div>
-          <div class="modal-url" id="tunnelUrlDisplay">—</div>
+          <div class="url-copy-row">
+            <div class="modal-url" id="tunnelUrlDisplay">—</div>
+            <button class="copy-btn" id="copyTunnelBtn" title="Copier le lien">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+            </button>
+          </div>
         </div>
 
         <div id="viewNoConn" style="display:none">
@@ -640,9 +661,22 @@
     }
 
     const TUNNEL_MODE = {{ 'true' if tunnel_mode else 'false' }};
+    const LAN_URL_SHARE = "{{ lan_url }}" + ({% if auth and pin %}"/?token={{ pin }}"{% else %}"/"{% endif %});
+
+    function copyToClipboard(text) {
+      if (!text || text === "—") return;
+      navigator.clipboard.writeText(text).then(() => toast("Lien copié !", "ok")).catch(() => toast("Impossible de copier", "error"));
+    }
+
+    $("#copyLanBtn").addEventListener("click", () => copyToClipboard(LAN_URL_SHARE));
+    $("#copyTunnelBtn").addEventListener("click", () => {
+      const base = $("#tunnelUrlDisplay").textContent.trim();
+      const suffix = {% if auth and pin %}"/?token={{ pin }}"{% else %}"/"{% endif %};
+      copyToClipboard(base !== "—" ? base + suffix : null);
+    });
 
     let modalInitialized = false;
-    $("#connectBtn").addEventListener("click", () => {
+    $("#connectBtn")?.addEventListener("click", () => {
       overlay.classList.add("show");
       if (!modalInitialized) { modalInitialized = true; initModal(); }
     });
