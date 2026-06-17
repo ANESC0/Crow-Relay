@@ -75,10 +75,16 @@ class TestTunnelUrlDisclosure:
         crow.TUNNEL_URL = "https://abc123.trycloudflare.com"
         crow.APPROVAL_ENABLED = False
 
-    def test_tunnel_url_exposed_without_auth(self, client):
-        """Visiteur sans PIN peut récupérer l'URL du tunnel."""
+    def test_tunnel_url_hidden_from_unauthenticated(self, client):
+        """Visiteur sans PIN ne doit pas voir l'URL du tunnel."""
         r = client.get("/api/network-info")
         assert r.status_code == 200
+        assert r.json["tunnel_url"] is None
+
+    def test_tunnel_url_visible_after_auth(self, client):
+        """Utilisateur authentifié par PIN peut voir l'URL du tunnel."""
+        client.post("/login", data={"pin": "secret"})
+        r = client.get("/api/network-info")
         assert r.json["tunnel_url"] == crow.TUNNEL_URL
 
     def test_tunnel_url_hidden_when_tunnel_mode_off(self, client):
@@ -253,10 +259,11 @@ class TestBruteForceEdgeCases:
         r = client.post("/login", data={"pin": "000000"})
         assert b"10 minutes" not in r.data  # blocage expiré
 
-    def test_pin_lockout_does_not_bleed_across_endpoints(self, client):
+    def test_pin_lockout_bleeds_across_endpoints(self, client):
         """
-        Le blocage sur /login n'affecte pas /admin/login
-        car le compteur est par IP (partagé, mais testons le comportement réel).
+        Le compteur de tentatives est partagé par IP : un blocage sur /login
+        bloque aussi /admin/login (comportement intentionnel — l'attaquant ne
+        peut pas pivoter vers l'endpoint admin après avoir été bloqué sur le PIN).
         """
         crow.AUTH_ENABLED = True
         crow.PIN = "111111"

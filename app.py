@@ -88,6 +88,7 @@ _LOGIN_LOCKOUT_SECONDS = 600  # 10 min
 _cloudflared_proc = None
 # URL publique du tunnel (renseignee une fois cloudflared connecte).
 TUNNEL_URL = None
+MAX_DEVICES = 500  # cap du registre pour eviter l'epuisement memoire/disque
 
 # Endpoints accessibles sans PIN.
 OPEN_ENDPOINTS = {"login", "static", "api_network_info"}
@@ -164,7 +165,7 @@ def load_devices() -> None:
 
 
 def save_devices() -> None:
-    """Ecriture atomique du registre."""
+    """Ecriture atomique du registre. Doit etre appelee avec _devices_lock acquis."""
     tmp = DEVICES_FILE + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(_devices, f, indent=2, ensure_ascii=False)
@@ -322,6 +323,7 @@ def login():
             error = "Trop de tentatives. Réessaie dans 10 minutes."
         elif PIN and secrets.compare_digest(request.form.get("pin", ""), PIN):
             _record_success(ip)
+            session.clear()
             session["auth"] = True
             next_url = request.args.get("next", "")
             parsed = urlparse(next_url)
@@ -361,6 +363,7 @@ def admin_boot(token: str):
     if not secrets.compare_digest(token, _bootstrap_token):
         return redirect(url_for("admin_login"))
     _bootstrap_token = None  # invalidé après premier usage
+    session.clear()
     session["is_admin"] = True
     return redirect(url_for("admin"))
 
@@ -376,7 +379,11 @@ def admin_login():
             error = "Trop de tentatives. Réessaie dans 10 minutes."
         elif ADMIN_KEY and secrets.compare_digest(request.form.get("key", ""), ADMIN_KEY):
             _record_success(ip)
+            was_authed = session.get("auth")
+            session.clear()
             session["is_admin"] = True
+            if was_authed:
+                session["auth"] = True
             return redirect(url_for("admin"))
         else:
             _record_failure(ip)
@@ -482,6 +489,7 @@ def access_status():
 
 
 @app.route("/api/request-access", methods=["POST"])
+@limiter.limit("10 per minute")
 def request_access():
     if not APPROVAL_ENABLED:
         return jsonify({"ok": True})
@@ -492,6 +500,8 @@ def request_access():
     mac = get_client_mac()
     with _devices_lock:
         rec = _devices.get(did)  # lecture fraîche sous le verrou
+        if rec is None and len(_devices) >= MAX_DEVICES:
+            return jsonify({"error": "Capacite maximale atteinte"}), 503
         if rec is None:
             # Vérifie si ce MAC appartient déjà à un appareil approuvé
             existing = find_approved_by_mac(mac) if mac else None
@@ -540,7 +550,7 @@ def list_files() -> list:
             stat = os.stat(path)
         except FileNotFoundError:
             continue
-        if not os.path.isfile(path):
+        if os.path.islink(path) or not os.path.isfile(path):
             continue
         files.append(
             {
@@ -641,10 +651,11 @@ def api_tunnel_url():
 
 @app.route("/api/network-info")
 def api_network_info():
+    authed = session.get("auth") or session.get("is_admin")
     return jsonify({
         "same_network": _is_same_network(),
         "tunnel_mode": TUNNEL_MODE,
-        "tunnel_url": TUNNEL_URL if TUNNEL_MODE else None,
+        "tunnel_url": (TUNNEL_URL if TUNNEL_MODE and authed else None),
         "is_admin": bool(session.get("is_admin")),
     })
 
@@ -684,7 +695,9 @@ def api_upload():
 def download(filename):
     if not device_allowed("can_receive"):
         abort(403)
-    app.logger.info("DOWNLOAD  %s  by %s", secure_filename(filename), _client_ip())
+    if os.path.islink(os.path.join(SHARE_DIR, secure_filename(filename))):
+        abort(404)
+    app.logger.info("DOWNLOAD  %s  by %s", filename, _client_ip())
     return send_from_directory(SHARE_DIR, filename, as_attachment=True)
 
 

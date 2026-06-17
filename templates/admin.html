@@ -509,7 +509,7 @@
         pending:  { cls:"warn", text:"En attente" },
         denied:   { cls:"danger", text:"Refusé"   },
       };
-      const st = statusMap[d.status] || { cls:"", text:d.status };
+      const st = statusMap[d.status] || { cls:"", text:escapeHtml(d.status) };
       const sendChk = d.can_send    ? "checked" : "";
       const recvChk = d.can_receive ? "checked" : "";
 
