@@ -37,6 +37,7 @@ import time
 import uuid
 import webbrowser
 from datetime import datetime
+from urllib.parse import urlparse
 
 from flask import (
     Flask,
@@ -173,13 +174,17 @@ def save_devices() -> None:
 def get_device():
     """Retourne (device_id, record|None) pour la requete courante."""
     did = request.cookies.get("crow_relay_device")
-    return did, _devices.get(did) if did else None
+    # Rejects empty values, control chars, path separators, and excessively long values.
+    # Production IDs are uuid4().hex (32 hex chars); limit is intentionally generous for flexibility.
+    if not did or not re.fullmatch(r"[\w\-]{1,128}", did):
+        return None, None
+    return did, _devices.get(did)
 
 
 def get_client_mac() -> str | None:
     """Retourne l'adresse MAC du client via le cache ARP (LAN uniquement).
     Indisponible en mode tunnel (l'IP vue est celle de Cloudflare)."""
-    if request.headers.get("CF-Connecting-IP"):
+    if TUNNEL_MODE:
         return None
     ip = request.remote_addr or ""
     if ip in ("127.0.0.1", "::1", ""):
@@ -224,7 +229,9 @@ def device_allowed(perm: str) -> bool:
 # --------------------------------------------------------------------------- #
 def _client_ip() -> str:
     """IP reelle du client (Cloudflare envoie CF-Connecting-IP en mode tunnel)."""
-    return request.headers.get("CF-Connecting-IP") or request.remote_addr or ""
+    if TUNNEL_MODE:
+        return request.headers.get("CF-Connecting-IP") or request.remote_addr or ""
+    return request.remote_addr or ""
 
 
 limiter = Limiter(
@@ -237,7 +244,7 @@ limiter = Limiter(
 
 def _is_same_network() -> bool:
     """True si le client est sur le meme LAN que le serveur."""
-    if request.headers.get("CF-Connecting-IP"):
+    if TUNNEL_MODE:
         return False
     client = request.remote_addr or ""
     if client in ("127.0.0.1", "::1"):
@@ -317,7 +324,8 @@ def login():
             _record_success(ip)
             session["auth"] = True
             next_url = request.args.get("next", "")
-            safe = next_url.startswith("/") and not next_url.startswith("//")
+            parsed = urlparse(next_url)
+            safe = not parsed.scheme and not parsed.netloc and next_url.startswith("/")
             return redirect(next_url if safe else url_for("index"))
         else:
             _record_failure(ip)
@@ -450,21 +458,25 @@ def access_status():
                 "name": "",
             }
         )
-    did, rec = get_device()
-    if not rec:
+    did, _ = get_device()
+    if not did:
         return jsonify({"status": "unknown"})
     now = time.time()
-    if now - rec.get("last_seen", 0) > 60:
-        with _devices_lock:
+    with _devices_lock:
+        rec = _devices.get(did)
+        if rec is None:
+            return jsonify({"status": "unknown"})
+        if now - rec.get("last_seen", 0) > 60:
             rec["last_seen"] = now
             save_devices()
+        snapshot = dict(rec)
     return jsonify(
         {
-            "status": rec["status"],
-            "can_send": rec.get("can_send", False),
-            "can_receive": rec.get("can_receive", False),
+            "status": snapshot["status"],
+            "can_send": snapshot.get("can_send", False),
+            "can_receive": snapshot.get("can_receive", False),
             "admin": False,
-            "name": rec.get("name", ""),
+            "name": snapshot.get("name", ""),
         }
     )
 
@@ -518,7 +530,11 @@ def human_size(num_bytes: int) -> str:
 
 def list_files() -> list:
     files = []
-    for name in os.listdir(SHARE_DIR):
+    try:
+        entries = os.listdir(SHARE_DIR)
+    except OSError:
+        return []
+    for name in entries:
         path = os.path.join(SHARE_DIR, name)
         try:
             stat = os.stat(path)
@@ -668,7 +684,7 @@ def api_upload():
 def download(filename):
     if not device_allowed("can_receive"):
         abort(403)
-    app.logger.info("DOWNLOAD  %s  by %s", filename, _client_ip())
+    app.logger.info("DOWNLOAD  %s  by %s", secure_filename(filename), _client_ip())
     return send_from_directory(SHARE_DIR, filename, as_attachment=True)
 
 
@@ -679,12 +695,15 @@ def api_admin_clear_files():
     with _upload_lock:
         for name in os.listdir(SHARE_DIR):
             path = os.path.join(SHARE_DIR, name)
-            if os.path.isfile(path):
-                try:
+            try:
+                if os.path.isfile(path):
                     os.remove(path)
                     deleted += 1
-                except OSError:
-                    pass
+                elif os.path.isdir(path):
+                    shutil.rmtree(path)
+                    deleted += 1
+            except OSError:
+                pass
     return jsonify({"deleted": deleted})
 
 
@@ -780,7 +799,7 @@ def ensure_cert(cert_path: str, key_path: str, ip: str) -> None:
         # 397 jours : iOS/Chrome rejettent tout cert > 398 jours depuis 2020
         .not_valid_after(now + dt.timedelta(days=397))
         .add_extension(x509.SubjectAlternativeName(san), critical=False)
-        .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
+        .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
         .sign(key, hashes.SHA256())
     )
 

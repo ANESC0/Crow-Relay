@@ -661,7 +661,7 @@
     }
 
     const TUNNEL_MODE = {{ 'true' if tunnel_mode else 'false' }};
-    const LAN_URL_SHARE = "{{ lan_url }}" + ({% if auth and pin %}"/?token={{ pin }}"{% else %}"/"{% endif %});
+    const LAN_URL_SHARE = "{{ lan_url }}" + ({% if is_admin and auth and pin %}"/?token={{ pin }}"{% else %}"/"{% endif %});
 
     function copyToClipboard(text) {
       if (!text || text === "—") return;
@@ -671,7 +671,7 @@
     $("#copyLanBtn").addEventListener("click", () => copyToClipboard(LAN_URL_SHARE));
     $("#copyTunnelBtn").addEventListener("click", () => {
       const base = $("#tunnelUrlDisplay").textContent.trim();
-      const suffix = {% if auth and pin %}"/?token={{ pin }}"{% else %}"/"{% endif %};
+      const suffix = {% if is_admin and auth and pin %}"/?token={{ pin }}"{% else %}"/"{% endif %};
       copyToClipboard(base !== "—" ? base + suffix : null);
     });
 

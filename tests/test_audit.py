@@ -158,7 +158,7 @@ class TestDeviceStateTransitions:
         assert not crow._devices[did]["can_send"]
         assert crow._devices[did]["can_receive"]  # inchangé
 
-    def test_delete_nonexistent_device_returns_404(self, client):
+    def test_delete_nonexistent_device_is_idempotent(self, client):
         with crow.app.test_client() as admin:
             admin.post("/admin/login", data={"key": "key"})
             r = admin.post("/api/admin/devices/ghost-device", json={"action": "delete"})
