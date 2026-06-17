@@ -305,6 +305,7 @@ def require_auth():
         ip = _client_ip()
         if not _is_blocked(ip) and secrets.compare_digest(token, PIN):
             _record_success(ip)
+            session.clear()
             session["auth"] = True
             # On nettoie l'URL pour ne pas laisser le token visible/partageable.
             return redirect(request.path)
@@ -456,6 +457,7 @@ def api_admin_set(device_id):
 # Etat d'acces de l'appareil courant
 # --------------------------------------------------------------------------- #
 @app.route("/api/access-status")
+@limiter.limit("30 per minute")
 def access_status():
     if not APPROVAL_ENABLED or session.get("is_admin"):
         return jsonify(
@@ -747,7 +749,7 @@ def api_delete(filename):
     safe = secure_filename(filename)
     path = os.path.join(SHARE_DIR, safe)
     with _upload_lock:
-        if not os.path.isfile(path):
+        if os.path.islink(path) or not os.path.isfile(path):
             abort(404)
         try:
             os.remove(path)

@@ -516,6 +516,28 @@ class TestMacBypassFixed:
 # FIX M2 — Download : symlink check et serve utilisent le même nom sécurisé
 # ---------------------------------------------------------------------------
 
+class TestDeleteSymlinkBlocked:
+    """
+    Régression : api_delete doit refuser la suppression d'un symlink,
+    par cohérence avec list_files() et download() qui les ignorent/bloquent.
+    """
+
+    def setup_method(self):
+        crow.APPROVAL_ENABLED = True
+
+    def test_delete_symlink_returns_404(self, approved_device):
+        """Un symlink dans SHARE_DIR ne peut pas être supprimé via api_delete."""
+        target = os.path.join(crow.SHARE_DIR, "real.txt")
+        link = os.path.join(crow.SHARE_DIR, "link.txt")
+        with open(target, "w") as f:
+            f.write("réel")
+        os.symlink(target, link)
+
+        r = approved_device.post("/api/delete/link.txt")
+        assert r.status_code == 404
+        assert os.path.islink(link), "le symlink ne doit pas avoir été supprimé"
+
+
 class TestDownloadSymlinkFixed:
     """
     Régression pour M2 : avant le fix, le check symlink utilisait secure_filename()
