@@ -37,6 +37,7 @@ import time
 import uuid
 import webbrowser
 from datetime import datetime
+from urllib.parse import urlparse
 
 from flask import (
     Flask,
@@ -87,6 +88,7 @@ _LOGIN_LOCKOUT_SECONDS = 600  # 10 min
 _cloudflared_proc = None
 # URL publique du tunnel (renseignee une fois cloudflared connecte).
 TUNNEL_URL = None
+MAX_DEVICES = 500  # cap du registre pour eviter l'epuisement memoire/disque
 
 # Endpoints accessibles sans PIN.
 OPEN_ENDPOINTS = {"login", "static", "api_network_info"}
@@ -163,7 +165,7 @@ def load_devices() -> None:
 
 
 def save_devices() -> None:
-    """Ecriture atomique du registre."""
+    """Ecriture atomique du registre. Doit etre appelee avec _devices_lock acquis."""
     tmp = DEVICES_FILE + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(_devices, f, indent=2, ensure_ascii=False)
@@ -173,13 +175,17 @@ def save_devices() -> None:
 def get_device():
     """Retourne (device_id, record|None) pour la requete courante."""
     did = request.cookies.get("crow_relay_device")
-    return did, _devices.get(did) if did else None
+    # Rejects empty values, control chars, path separators, and excessively long values.
+    # Production IDs are uuid4().hex (32 hex chars); limit is intentionally generous for flexibility.
+    if not did or not re.fullmatch(r"[\w\-]{1,128}", did):
+        return None, None
+    return did, _devices.get(did)
 
 
 def get_client_mac() -> str | None:
     """Retourne l'adresse MAC du client via le cache ARP (LAN uniquement).
     Indisponible en mode tunnel (l'IP vue est celle de Cloudflare)."""
-    if request.headers.get("CF-Connecting-IP"):
+    if TUNNEL_MODE:
         return None
     ip = request.remote_addr or ""
     if ip in ("127.0.0.1", "::1", ""):
@@ -224,7 +230,9 @@ def device_allowed(perm: str) -> bool:
 # --------------------------------------------------------------------------- #
 def _client_ip() -> str:
     """IP reelle du client (Cloudflare envoie CF-Connecting-IP en mode tunnel)."""
-    return request.headers.get("CF-Connecting-IP") or request.remote_addr or ""
+    if TUNNEL_MODE:
+        return request.headers.get("CF-Connecting-IP") or request.remote_addr or ""
+    return request.remote_addr or ""
 
 
 limiter = Limiter(
@@ -237,7 +245,7 @@ limiter = Limiter(
 
 def _is_same_network() -> bool:
     """True si le client est sur le meme LAN que le serveur."""
-    if request.headers.get("CF-Connecting-IP"):
+    if TUNNEL_MODE:
         return False
     client = request.remote_addr or ""
     if client in ("127.0.0.1", "::1"):
@@ -315,9 +323,11 @@ def login():
             error = "Trop de tentatives. Réessaie dans 10 minutes."
         elif PIN and secrets.compare_digest(request.form.get("pin", ""), PIN):
             _record_success(ip)
+            session.clear()
             session["auth"] = True
             next_url = request.args.get("next", "")
-            safe = next_url.startswith("/") and not next_url.startswith("//")
+            parsed = urlparse(next_url)
+            safe = not parsed.scheme and not parsed.netloc and next_url.startswith("/")
             return redirect(next_url if safe else url_for("index"))
         else:
             _record_failure(ip)
@@ -328,6 +338,7 @@ def login():
 @app.route("/logout", methods=["POST"])
 def logout():
     session.pop("auth", None)
+    session.pop("is_admin", None)
     return redirect(url_for("login"))
 
 
@@ -352,6 +363,7 @@ def admin_boot(token: str):
     if not secrets.compare_digest(token, _bootstrap_token):
         return redirect(url_for("admin_login"))
     _bootstrap_token = None  # invalidé après premier usage
+    session.clear()
     session["is_admin"] = True
     return redirect(url_for("admin"))
 
@@ -367,7 +379,11 @@ def admin_login():
             error = "Trop de tentatives. Réessaie dans 10 minutes."
         elif ADMIN_KEY and secrets.compare_digest(request.form.get("key", ""), ADMIN_KEY):
             _record_success(ip)
+            was_authed = session.get("auth")
+            session.clear()
             session["is_admin"] = True
+            if was_authed:
+                session["auth"] = True
             return redirect(url_for("admin"))
         else:
             _record_failure(ip)
@@ -449,26 +465,31 @@ def access_status():
                 "name": "",
             }
         )
-    did, rec = get_device()
-    if not rec:
+    did, _ = get_device()
+    if not did:
         return jsonify({"status": "unknown"})
     now = time.time()
-    if now - rec.get("last_seen", 0) > 60:
-        with _devices_lock:
+    with _devices_lock:
+        rec = _devices.get(did)
+        if rec is None:
+            return jsonify({"status": "unknown"})
+        if now - rec.get("last_seen", 0) > 60:
             rec["last_seen"] = now
             save_devices()
+        snapshot = dict(rec)
     return jsonify(
         {
-            "status": rec["status"],
-            "can_send": rec.get("can_send", False),
-            "can_receive": rec.get("can_receive", False),
+            "status": snapshot["status"],
+            "can_send": snapshot.get("can_send", False),
+            "can_receive": snapshot.get("can_receive", False),
             "admin": False,
-            "name": rec.get("name", ""),
+            "name": snapshot.get("name", ""),
         }
     )
 
 
 @app.route("/api/request-access", methods=["POST"])
+@limiter.limit("10 per minute")
 def request_access():
     if not APPROVAL_ENABLED:
         return jsonify({"ok": True})
@@ -479,6 +500,8 @@ def request_access():
     mac = get_client_mac()
     with _devices_lock:
         rec = _devices.get(did)  # lecture fraîche sous le verrou
+        if rec is None and len(_devices) >= MAX_DEVICES:
+            return jsonify({"error": "Capacite maximale atteinte"}), 503
         if rec is None:
             # Vérifie si ce MAC appartient déjà à un appareil approuvé
             existing = find_approved_by_mac(mac) if mac else None
@@ -517,13 +540,17 @@ def human_size(num_bytes: int) -> str:
 
 def list_files() -> list:
     files = []
-    for name in os.listdir(SHARE_DIR):
+    try:
+        entries = os.listdir(SHARE_DIR)
+    except OSError:
+        return []
+    for name in entries:
         path = os.path.join(SHARE_DIR, name)
         try:
             stat = os.stat(path)
         except FileNotFoundError:
             continue
-        if not os.path.isfile(path):
+        if os.path.islink(path) or not os.path.isfile(path):
             continue
         files.append(
             {
@@ -624,10 +651,11 @@ def api_tunnel_url():
 
 @app.route("/api/network-info")
 def api_network_info():
+    authed = session.get("auth") or session.get("is_admin")
     return jsonify({
         "same_network": _is_same_network(),
         "tunnel_mode": TUNNEL_MODE,
-        "tunnel_url": TUNNEL_URL if TUNNEL_MODE else None,
+        "tunnel_url": (TUNNEL_URL if TUNNEL_MODE and authed else None),
         "is_admin": bool(session.get("is_admin")),
     })
 
@@ -667,6 +695,8 @@ def api_upload():
 def download(filename):
     if not device_allowed("can_receive"):
         abort(403)
+    if os.path.islink(os.path.join(SHARE_DIR, secure_filename(filename))):
+        abort(404)
     app.logger.info("DOWNLOAD  %s  by %s", filename, _client_ip())
     return send_from_directory(SHARE_DIR, filename, as_attachment=True)
 
@@ -678,12 +708,15 @@ def api_admin_clear_files():
     with _upload_lock:
         for name in os.listdir(SHARE_DIR):
             path = os.path.join(SHARE_DIR, name)
-            if os.path.isfile(path):
-                try:
+            try:
+                if os.path.isfile(path):
                     os.remove(path)
                     deleted += 1
-                except OSError:
-                    pass
+                elif os.path.isdir(path):
+                    shutil.rmtree(path)
+                    deleted += 1
+            except OSError:
+                pass
     return jsonify({"deleted": deleted})
 
 
@@ -779,7 +812,7 @@ def ensure_cert(cert_path: str, key_path: str, ip: str) -> None:
         # 397 jours : iOS/Chrome rejettent tout cert > 398 jours depuis 2020
         .not_valid_after(now + dt.timedelta(days=397))
         .add_extension(x509.SubjectAlternativeName(san), critical=False)
-        .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
+        .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
         .sign(key, hashes.SHA256())
     )
 

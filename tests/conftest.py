@@ -11,6 +11,9 @@ def reset_state(tmp_path):
     crow.TUNNEL_MODE = False
     crow.PIN = None
     crow.ADMIN_KEY = None
+    crow.TUNNEL_URL = None
+    crow.LOCAL_IP = ""
+    crow._bootstrap_token = None
     crow.SHARE_DIR = str(tmp_path / "shared")
     crow._devices.clear()
     crow._login_attempts.clear()
@@ -18,6 +21,8 @@ def reset_state(tmp_path):
     crow.app.config["TESTING"] = True
     crow.app.config["RATELIMIT_ENABLED"] = False
     crow.app.config["SESSION_COOKIE_SECURE"] = False
+    with crow.app.app_context():
+        crow.limiter.reset()
     yield
     crow._devices.clear()
     crow._login_attempts.clear()
