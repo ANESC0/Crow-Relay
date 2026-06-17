@@ -432,6 +432,8 @@ def api_admin_set(device_id):
             rec["can_send"] = bool(data.get("can_send", True))
             rec["can_receive"] = bool(data.get("can_receive", True))
         elif action == "update":
+            if rec.get("status") != "approved":
+                abort(400)
             if "can_send" in data:
                 rec["can_send"] = bool(data["can_send"])
             if "can_receive" in data:
@@ -503,13 +505,15 @@ def request_access():
         if rec is None and len(_devices) >= MAX_DEVICES:
             return jsonify({"error": "Capacite maximale atteinte"}), 503
         if rec is None:
-            # Vérifie si ce MAC appartient déjà à un appareil approuvé
+            # Le MAC sert uniquement à pré-remplir le nom (ergonomie) — jamais à auto-approuver.
+            # L'auto-approbation par MAC permettrait à n'importe quel appareil du LAN de
+            # contourner l'approbation en usurpant l'adresse MAC d'un appareil déjà approuvé.
             existing = find_approved_by_mac(mac) if mac else None
             _devices[did] = {
                 "name": name or (existing["name"] if existing else ""),
-                "status": "approved" if existing else "pending",
-                "can_send": existing["can_send"] if existing else False,
-                "can_receive": existing["can_receive"] if existing else False,
+                "status": "pending",
+                "can_send": False,
+                "can_receive": False,
                 "mac": mac or "",
                 "first_seen": time.time(),
                 "last_seen": time.time(),
@@ -695,10 +699,13 @@ def api_upload():
 def download(filename):
     if not device_allowed("can_receive"):
         abort(403)
-    if os.path.islink(os.path.join(SHARE_DIR, secure_filename(filename))):
+    safe = secure_filename(filename)
+    if not safe:
         abort(404)
-    app.logger.info("DOWNLOAD  %s  by %s", filename, _client_ip())
-    return send_from_directory(SHARE_DIR, filename, as_attachment=True)
+    if os.path.islink(os.path.join(SHARE_DIR, safe)):
+        abort(404)
+    app.logger.info("DOWNLOAD  %s  by %s", safe, _client_ip())
+    return send_from_directory(SHARE_DIR, safe, as_attachment=True)
 
 
 @app.route("/api/admin/clear-files", methods=["POST"])

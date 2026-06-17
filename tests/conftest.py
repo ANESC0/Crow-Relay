@@ -15,12 +15,14 @@ def reset_state(tmp_path):
     crow.LOCAL_IP = ""
     crow._bootstrap_token = None
     crow.SHARE_DIR = str(tmp_path / "shared")
+    crow.DEVICES_FILE = str(tmp_path / "devices.json")
     crow._devices.clear()
     crow._login_attempts.clear()
     os.makedirs(crow.SHARE_DIR, exist_ok=True)
     crow.app.config["TESTING"] = True
     crow.app.config["RATELIMIT_ENABLED"] = False
     crow.app.config["SESSION_COOKIE_SECURE"] = False
+    crow.app.config["MAX_CONTENT_LENGTH"] = None
     with crow.app.app_context():
         crow.limiter.reset()
     yield

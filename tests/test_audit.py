@@ -285,12 +285,11 @@ class TestBruteForceEdgeCases:
 class TestFileEdgeCases:
 
     def test_upload_empty_filename_fallback(self, approved_device):
-        """Un fichier sans nom reçoit le nom par défaut 'fichier'."""
+        """Un fichier sans nom est rejeté : Flask ne transmet pas les champs vides."""
         import io
         data = {"files": (io.BytesIO(b"data"), "")}
         r = approved_device.post("/api/upload", content_type="multipart/form-data", data=data)
-        # Flask ne transmet pas les champs vides dans files, attendu : 400
-        assert r.status_code in (200, 400)
+        assert r.status_code == 400
 
     def test_upload_no_files_field_returns_400(self, approved_device):
         """POST /api/upload sans champ 'files' → 400."""
@@ -413,6 +412,216 @@ class TestRequestAccess:
         client.set_cookie("crow_relay_device", did)
         client.post("/api/request-access", json={"name": "approved"})
         assert crow._devices[did]["status"] == "approved"
+
+
+# ---------------------------------------------------------------------------
+# FIX M1 — Bypass MAC : usurpation d'adresse MAC ne doit pas auto-approuver
+# ---------------------------------------------------------------------------
+
+class TestMacBypassFixed:
+    """
+    Régression pour M1 : avant le fix, un attaquant pouvait usurper le MAC
+    d'un appareil approuvé pour obtenir l'auto-approbation sans intervention admin.
+    Après fix : le MAC sert uniquement à pré-remplir le nom de l'appareil.
+    """
+
+    def setup_method(self):
+        crow.AUTH_ENABLED = False
+        crow.APPROVAL_ENABLED = True
+        crow.TUNNEL_MODE = False
+
+    def test_mac_spoof_does_not_auto_approve(self, client, monkeypatch):
+        """Un nouveau cookie avec le MAC d'un appareil approuvé reste pending."""
+        approved_did = "legit-device-001"
+        target_mac = "AA:BB:CC:DD:EE:FF"
+        crow._devices[approved_did] = {
+            "name": "Téléphone Alice",
+            "status": "approved",
+            "can_send": True,
+            "can_receive": True,
+            "mac": target_mac,
+            "first_seen": 0.0,
+            "last_seen": 0.0,
+        }
+
+        # Simule un attaquant qui usurpe le MAC de l'appareil approuvé
+        monkeypatch.setattr(crow, "get_client_mac", lambda: target_mac)
+
+        attacker_did = "attacker-device-999"
+        client.set_cookie("crow_relay_device", attacker_did)
+        r = client.post("/api/request-access", json={"name": "Attaquant"})
+        assert r.status_code == 200
+
+        rec = crow._devices[attacker_did]
+        assert rec["status"] == "pending", "MAC spoofing ne doit pas auto-approuver"
+        assert not rec["can_send"]
+        assert not rec["can_receive"]
+
+    def test_mac_match_still_prefills_name(self, client, monkeypatch):
+        """Le MAC peut toujours pré-remplir le nom (ergonomie préservée)."""
+        approved_did = "named-device"
+        target_mac = "11:22:33:44:55:66"
+        crow._devices[approved_did] = {
+            "name": "Téléphone Alice",
+            "status": "approved",
+            "can_send": True,
+            "can_receive": True,
+            "mac": target_mac,
+            "first_seen": 0.0,
+            "last_seen": 0.0,
+        }
+
+        monkeypatch.setattr(crow, "get_client_mac", lambda: target_mac)
+
+        new_did = "new-device-no-name"
+        client.set_cookie("crow_relay_device", new_did)
+        client.post("/api/request-access", json={"name": ""})
+
+        rec = crow._devices[new_did]
+        assert rec["status"] == "pending"
+        assert rec["name"] == "Téléphone Alice"  # nom pré-rempli depuis l'ancien appareil
+
+    def test_no_mac_match_creates_pending_device(self, client, monkeypatch):
+        """Sans MAC connu, le comportement normal s'applique : pending."""
+        monkeypatch.setattr(crow, "get_client_mac", lambda: "FF:FF:FF:FF:FF:FF")
+
+        did = "unknown-mac-device"
+        client.set_cookie("crow_relay_device", did)
+        client.post("/api/request-access", json={"name": "Inconnu"})
+
+        assert crow._devices[did]["status"] == "pending"
+
+    def test_mac_bypass_blocked_in_tunnel_mode(self, client):
+        """En mode tunnel, get_client_mac() retourne None : aucune auto-approbation possible."""
+        crow.TUNNEL_MODE = True
+        approved_did = "tunnel-legit"
+        crow._devices[approved_did] = {
+            "name": "Appareil approuvé",
+            "status": "approved",
+            "can_send": True,
+            "can_receive": True,
+            "mac": "AA:BB:CC:DD:EE:FF",
+            "first_seen": 0.0,
+            "last_seen": 0.0,
+        }
+
+        new_did = "tunnel-attacker"
+        client.set_cookie("crow_relay_device", new_did)
+        client.post("/api/request-access", json={"name": "Tunnel Attaquant"})
+
+        assert crow._devices[new_did]["status"] == "pending"
+
+
+# ---------------------------------------------------------------------------
+# FIX M2 — Download : symlink check et serve utilisent le même nom sécurisé
+# ---------------------------------------------------------------------------
+
+class TestDownloadSymlinkFixed:
+    """
+    Régression pour M2 : avant le fix, le check symlink utilisait secure_filename()
+    mais send_from_directory utilisait le nom brut. Un symlink avec espace dans le nom
+    (ex: 'my file.txt') passait le check (qui vérifiait 'my_file.txt') et était servi.
+    """
+
+    def setup_method(self):
+        crow.AUTH_ENABLED = False
+        crow.APPROVAL_ENABLED = True
+
+    def test_download_uses_secure_filename(self, approved_device):
+        """Le fichier servi correspond au nom sécurisé, pas au nom brut."""
+        import io
+        approved_device.post(
+            "/api/upload",
+            content_type="multipart/form-data",
+            data={"files": (io.BytesIO(b"contenu"), "test.txt")},
+        )
+        r = approved_device.get("/download/test.txt")
+        assert r.status_code == 200
+        assert r.data == b"contenu"
+
+    def test_download_empty_secure_filename_returns_404(self, approved_device):
+        """Un nom qui devient vide après secure_filename (ex: '../..') → 404."""
+        r = approved_device.get("/download/../..")
+        assert r.status_code == 404
+
+    def test_symlink_in_sharedir_blocked(self, approved_device):
+        """Un lien symbolique direct dans SHARE_DIR est bloqué au téléchargement."""
+        target = os.path.join(crow.SHARE_DIR, "real.txt")
+        link = os.path.join(crow.SHARE_DIR, "link.txt")
+        with open(target, "w") as f:
+            f.write("réel")
+        os.symlink(target, link)
+
+        r = approved_device.get("/download/link.txt")
+        assert r.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# FIX L2 — action "update" refusée sur un appareil non approuvé
+# ---------------------------------------------------------------------------
+
+class TestUpdateActionGuard:
+    """
+    Régression pour L2 : avant le fix, l'action "update" acceptait de modifier
+    can_send/can_receive sur un appareil pending ou denied. Sans effet de sécurité
+    immédiat (device_allowed vérifie le statut), mais comportement incohérent.
+    """
+
+    def setup_method(self):
+        crow.AUTH_ENABLED = False
+        crow.APPROVAL_ENABLED = True
+        crow.ADMIN_KEY = "key"
+
+    def test_update_on_pending_device_returns_400(self, client):
+        """action='update' sur un appareil pending → 400."""
+        did = "pending-device"
+        crow._devices[did] = {
+            "name": "pending",
+            "status": "pending",
+            "can_send": False,
+            "can_receive": False,
+            "mac": "",
+            "first_seen": 0.0,
+            "last_seen": 0.0,
+        }
+        client.post("/admin/login", data={"key": "key"})
+        r = client.post(f"/api/admin/devices/{did}", json={"action": "update", "can_send": True})
+        assert r.status_code == 400
+        assert not crow._devices[did]["can_send"]
+
+    def test_update_on_denied_device_returns_400(self, client):
+        """action='update' sur un appareil denied → 400."""
+        did = "denied-device"
+        crow._devices[did] = {
+            "name": "denied",
+            "status": "denied",
+            "can_send": False,
+            "can_receive": False,
+            "mac": "",
+            "first_seen": 0.0,
+            "last_seen": 0.0,
+        }
+        client.post("/admin/login", data={"key": "key"})
+        r = client.post(f"/api/admin/devices/{did}", json={"action": "update", "can_send": True})
+        assert r.status_code == 400
+
+    def test_update_on_approved_device_succeeds(self, client):
+        """action='update' sur un appareil approved → 200, permissions modifiées."""
+        did = "approved-device"
+        crow._devices[did] = {
+            "name": "approved",
+            "status": "approved",
+            "can_send": True,
+            "can_receive": True,
+            "mac": "",
+            "first_seen": 0.0,
+            "last_seen": 0.0,
+        }
+        client.post("/admin/login", data={"key": "key"})
+        r = client.post(f"/api/admin/devices/{did}", json={"action": "update", "can_send": False})
+        assert r.status_code == 200
+        assert not crow._devices[did]["can_send"]
+        assert crow._devices[did]["can_receive"]
 
 
 # ---------------------------------------------------------------------------
