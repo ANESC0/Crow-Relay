@@ -652,3 +652,68 @@ class TestSecurityHeadersComplement:
         r = approved_device.get("/api/files")
         assert r.headers.get("X-Content-Type-Options") == "nosniff"
         assert r.headers.get("X-Frame-Options") == "DENY"
+
+
+# ---------------------------------------------------------------------------
+# Couverture manquante — /qr.svg doit être protégé par require_auth
+# ---------------------------------------------------------------------------
+
+class TestQrCodeAuth:
+    """
+    /qr.svg embarque le PIN dans son URL (token=XXXXXX). S'il était accessible
+    sans authentification, n'importe quel appareil sur le réseau pourrait
+    récupérer le PIN sans jamais le saisir.
+    """
+
+    def setup_method(self):
+        crow.AUTH_ENABLED = True
+        crow.PIN = "123456"
+        crow.LAN_URL = "http://192.168.1.1:8000"
+
+    def test_qr_unauthenticated_redirects_to_login(self, client):
+        """Un client sans session ne peut pas accéder au QR code."""
+        r = client.get("/qr.svg")
+        assert r.status_code == 302
+        assert "/login" in r.headers.get("Location", "")
+
+    def test_qr_authenticated_returns_svg_or_503(self, authed_client):
+        """Un client authentifié obtient le SVG (200) ou 503 si qrcode absent."""
+        r = authed_client.get("/qr.svg")
+        assert r.status_code in (200, 503)
+        if r.status_code == 200:
+            assert "image/svg+xml" in r.content_type
+
+    def test_qr_embeds_pin_token_in_qr_url(self, authed_client):
+        """L'URL encodée dans le QR contient le token PIN quand AUTH_ENABLED=True."""
+        try:
+            import qrcode as _qrcode
+        except ImportError:
+            return  # qrcode non installé, test non applicable
+        import unittest.mock
+        captured = {}
+        original_make = _qrcode.make
+        def _capture(data, **kw):
+            captured["data"] = data
+            return original_make(data, **kw)
+        with unittest.mock.patch("qrcode.make", side_effect=_capture):
+            r = authed_client.get("/qr.svg")
+        assert r.status_code == 200
+        assert "token=123456" in captured.get("data", "")
+
+    def test_qr_no_token_when_auth_disabled(self, client):
+        """Sans AUTH_ENABLED, l'URL du QR ne contient pas de token."""
+        crow.AUTH_ENABLED = False
+        try:
+            import qrcode as _qrcode
+        except ImportError:
+            return  # qrcode non installé, test non applicable
+        import unittest.mock
+        captured = {}
+        original_make = _qrcode.make
+        def _capture(data, **kw):
+            captured["data"] = data
+            return original_make(data, **kw)
+        with unittest.mock.patch("qrcode.make", side_effect=_capture):
+            r = client.get("/qr.svg")
+        assert r.status_code == 200
+        assert "token=" not in captured.get("data", "")
