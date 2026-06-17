@@ -328,6 +328,7 @@ def login():
 @app.route("/logout", methods=["POST"])
 def logout():
     session.pop("auth", None)
+    session.pop("is_admin", None)
     return redirect(url_for("login"))
 
 

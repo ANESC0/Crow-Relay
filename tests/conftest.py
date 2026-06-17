@@ -18,6 +18,8 @@ def reset_state(tmp_path):
     crow.app.config["TESTING"] = True
     crow.app.config["RATELIMIT_ENABLED"] = False
     crow.app.config["SESSION_COOKIE_SECURE"] = False
+    with crow.app.app_context():
+        crow.limiter.reset()
     yield
     crow._devices.clear()
     crow._login_attempts.clear()
