@@ -311,9 +311,7 @@
     }
     .pin-header { display: flex; align-items: center; justify-content: space-between; }
     .pin-label { color: var(--muted); font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.4px; }
-    .pin-copy { background: none; border: none; padding: 2px; cursor: pointer; color: var(--muted); display: flex; transition: color .15s; }
-    .pin-copy:hover { color: var(--accent-2); }
-    .pin-copy svg { width: 13px; height: 13px; }
+
     .pin-code { font-size: 26px; font-weight: 700; letter-spacing: 8px; margin-top: 4px; font-family: ui-monospace, monospace; color: var(--text); }
 
     /* ── GATE ── */
@@ -552,7 +550,6 @@
         <div class="pin-box" id="pinBox" style="display:none">
           <div class="pin-header">
             <div class="pin-label">Code PIN</div>
-            {% if is_admin %}<button class="pin-copy" id="sharePinBtn" aria-label="Partager le lien d'accès"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg></button>{% endif %}
           </div>
           <div class="pin-code">{% if is_admin %}{{ pin }}{% else %}••••••{% endif %}</div>
         </div>
@@ -759,22 +756,6 @@
       navigator.clipboard.writeText(text).then(() => toast("Lien copié !", "ok")).catch(() => toast("Impossible de copier", "error"));
     }
 
-    {% if is_admin %}
-    $("#sharePinBtn")?.addEventListener("click", () => {
-      {% if tunnel_mode %}
-      const base = $("#tunnelUrlDisplay")?.textContent?.trim();
-      const url = (base && base !== "—") ? base + "{% if auth and pin %}/?token={{ pin }}{% endif %}" : null;
-      if (!url) { toast("Tunnel pas encore prêt", "error"); return; }
-      {% else %}
-      const url = LAN_URL_SHARE;
-      {% endif %}
-      if (navigator.share) {
-        navigator.share({ title: "Crow-Relay", text: "Rejoins-moi pour partager des fichiers :", url }).catch(() => {});
-      } else {
-        navigator.clipboard.writeText(url).then(() => toast("Lien copié !", "ok")).catch(() => toast("Impossible de copier", "error"));
-      }
-    });
-    {% endif %}
     $("#copyLanBtn").addEventListener("click", () => copyToClipboard(LAN_URL_SHARE));
     $("#copyTunnelBtn").addEventListener("click", () => {
       const base = $("#tunnelUrlDisplay").textContent.trim();
