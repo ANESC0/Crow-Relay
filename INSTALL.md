@@ -186,6 +186,8 @@ Au démarrage, le navigateur de l'ordinateur hôte s'ouvre automatiquement sur l
 1. Scanner le **QR code** avec l'appareil photo → la page s'ouvre et te connecte directement (le PIN est embarqué).
 2. Ou ouvrir le navigateur, taper l'adresse (`http://192.168.x.x:8000`) et saisir le code PIN.
 
+> **Plusieurs cartes réseau (Ethernet + Wi-Fi…)** : en mode local, le lanceur demande sur quelle carte écouter dès que plusieurs sont détectées, et toutes les adresses sont listées dans « Connecter un appareil ». Donne au téléphone celle de son réseau. L'adresse se met à jour toute seule si l'IP change — pas besoin de relancer.
+
 ---
 
 ## Autoriser le port dans le pare-feu

@@ -85,7 +85,9 @@ bash scripts/crow-relay.sh
 ```bash
 # macOS / Linux
 python3 app.py --port 9000        # changer le port (défaut : 8000)
-python3 app.py --host 0.0.0.0     # changer l'interface d'écoute (défaut : toutes)
+python3 app.py --host 0.0.0.0     # changer l'interface d'écoute (défaut : toutes les cartes)
+python3 app.py --host 192.168.1.50  # n'écouter/annoncer que cette carte (ex. Ethernet)
+python3 app.py --pick-host        # si plusieurs cartes : demande sur laquelle écouter
 python3 app.py --no-pin           # désactiver le code PIN (réseau de confiance)
 python3 app.py --no-approval      # désactiver l'autorisation par appareil
 python3 app.py --https            # chiffrer les transferts (certificat auto-signé)
@@ -123,6 +125,10 @@ Au démarrage, l'ordinateur affiche une adresse et un QR code. Deux façons de s
 2. **Taper l'adresse** dans le navigateur (`http://192.168.x.x:8000`) puis saisir le code PIN.
 
 Le navigateur s'ouvre aussi automatiquement sur l'ordinateur hôte.
+
+**Plusieurs cartes réseau (Ethernet + Wi-Fi, VPN…)** : par défaut Crow-Relay écoute sur toutes les cartes et **détecte automatiquement l'adresse à annoncer** — en évitant les IP de VPN. Si l'hôte a plusieurs réseaux locaux, toutes les adresses détectées sont **listées dans le terminal et dans « Connecter un appareil »** : donne au téléphone celle qui correspond à son réseau. L'adresse affichée se **rafraîchit toute seule** si l'IP change (DHCP, changement de réseau) sans relancer le service.
+
+En mode local, **le lanceur demande sur quelle carte écouter** dès que plusieurs sont détectées (sinon il ne pose pas la question). Pour forcer une carte précise en ligne de commande : `--host <IP de la carte>` (n'écoute alors que sur ce réseau), ou `--pick-host` pour le menu interactif.
 
 ### Autorisation par appareil
 

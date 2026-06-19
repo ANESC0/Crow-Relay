@@ -89,6 +89,7 @@ if "%CROW_SIZE%"=="2" set CROW_ARGS=%CROW_HTTPS_ARG% --max-mb 500
 if "%CROW_SIZE%"=="3" set CROW_ARGS=%CROW_HTTPS_ARG% --max-mb 1000
 if "%CROW_SIZE%"=="4" set CROW_ARGS=%CROW_HTTPS_ARG% --max-mb 2000
 if "%CROW_SIZE%"=="5" goto :CUSTOM_LOCAL
+set CROW_ARGS=%CROW_ARGS% --pick-host
 goto :LAUNCH
 
 :CUSTOM_LOCAL
@@ -97,6 +98,7 @@ set /p CROW_MB= Limite en Mo (ex: 200) :
 set CROW_ARGS=%CROW_HTTPS_ARG%
 echo "%CROW_MB%"| findstr /r "^\"[0-9][0-9]*\"$" >nul 2>&1
 if %ERRORLEVEL%==0 set CROW_ARGS=%CROW_HTTPS_ARG% --max-mb %CROW_MB%
+set CROW_ARGS=%CROW_ARGS% --pick-host
 goto :LAUNCH
 
 :: ==========================================

@@ -66,6 +66,8 @@ if [ "$CROW_MODE" = "2" ]; then
             ;;
     esac
 else
+    # Mode local : si plusieurs cartes reseau, demander sur quelle IP ecouter.
+    CROW_ARGS+=(--pick-host)
     # ══════════════════════════════════════════
     #  Etape 2/3 — Chiffrement (LOCAL)
     # ══════════════════════════════════════════

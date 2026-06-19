@@ -14,6 +14,10 @@ def reset_state(tmp_path):
     crow.TUNNEL_URL = None
     crow.LAN_URL = "http://localhost"
     crow.LOCAL_IP = ""
+    crow.LAN_SCHEME = "http"
+    crow.LAN_PORT = 8000
+    crow.HOST_PIN = None
+    crow._ip_cache.update({"primary": "", "ips": [], "ts": 0.0})
     crow._bootstrap_token = None
     crow.SHARE_DIR = str(tmp_path / "shared")
     crow.DEVICES_FILE = str(tmp_path / "devices.json")

@@ -289,6 +289,8 @@
     }
     .url-copy-row { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
     .modal-url { flex: 1; font-size: 10.5px; color: var(--accent); font-family: ui-monospace, monospace; word-break: break-all; opacity: .85; }
+    .lan-other-list { list-style: none; padding: 0; margin: 6px 0 0; display: flex; flex-direction: column; gap: 4px; }
+    .lan-other-list li { font-size: 10.5px; color: var(--accent); font-family: ui-monospace, monospace; word-break: break-all; opacity: .7; }
     .copy-btn {
       flex-shrink: 0; width: 40px; height: 40px;
       background: var(--surface-2); border: 1px solid var(--border-2);
@@ -526,6 +528,15 @@
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
             </button>
           </div>
+          {% set others = lan_ips | reject('in', lan_url) | list %}
+          {% if others %}
+          <p class="hint" style="margin-top:10px">Plusieurs réseaux détectés — utilise l'adresse du même réseau que le téléphone :</p>
+          <ul class="lan-other-list">
+            {% for ip in others %}
+            <li>{{ lan_scheme }}://{{ ip }}:{{ lan_port }}</li>
+            {% endfor %}
+          </ul>
+          {% endif %}
         </div>
 
         <div id="viewTunnel" style="display:none">

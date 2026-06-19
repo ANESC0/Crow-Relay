@@ -22,6 +22,7 @@ Securite (deux couches independantes) :
 
 import argparse
 import io
+import ipaddress
 import json
 import logging
 import os
@@ -77,6 +78,19 @@ ADMIN_KEY = None
 LAN_URL = "http://localhost"
 TUNNEL_MODE = False
 LOCAL_IP = ""
+# Schema/port retenus au demarrage pour reconstruire l'URL LAN a la volee.
+LAN_SCHEME = "http"
+LAN_PORT = 8000
+# Si --host vise une IP concrete, on annonce exactement cette IP (interface
+# choisie par l'utilisateur) et on ne rafraichit pas dynamiquement.
+HOST_PIN: str | None = None
+
+# Cache court de la detection d'IP : evite de rouvrir un socket a chaque requete
+# tout en laissant l'URL/QR se corriger si l'IP change (DHCP, VPN, changement de
+# reseau) sans relancer le service.
+_ip_cache: dict = {"primary": "", "ips": [], "ts": 0.0}
+_ip_cache_lock = threading.Lock()
+_IP_CACHE_TTL = 30  # secondes
 
 # Protection brute-force sur le PIN.
 _login_attempts: dict = {}
@@ -244,12 +258,16 @@ def _is_same_network() -> bool:
     client = request.remote_addr or ""
     if client in ("127.0.0.1", "::1"):
         return True
-    if not LOCAL_IP or not client:
+    if not client:
         return False
     def _prefix(ip: str) -> str:
         parts = ip.split(".")
         return ".".join(parts[:3]) if len(parts) == 4 else ip
-    return _prefix(client) == _prefix(LOCAL_IP)
+    # Compare le client au prefixe /24 de chacune des cartes LAN de l'hote
+    # (et non d'une seule), pour rester correct en multi-cartes.
+    host_ips = current_lan_ips() or ([LOCAL_IP] if LOCAL_IP else [])
+    cp = _prefix(client)
+    return any(cp == _prefix(h) for h in host_ips)
 
 
 def _is_blocked(ip: str) -> bool:
@@ -346,7 +364,7 @@ def admin():
         return "Les autorisations par appareil sont desactivees (--no-approval).", 200
     if not session.get("is_admin"):
         return redirect(url_for("admin_login"))
-    return render_template("admin.html", lan_url=LAN_URL, pin=PIN, auth=AUTH_ENABLED, tunnel_mode=TUNNEL_MODE)
+    return render_template("admin.html", lan_url=current_lan_url(), pin=PIN, auth=AUTH_ENABLED, tunnel_mode=TUNNEL_MODE)
 
 
 @app.route("/admin/boot/<token>")
@@ -616,7 +634,10 @@ def index():
     resp = make_response(
         render_template(
             "index.html",
-            lan_url=LAN_URL,
+            lan_url=current_lan_url(),
+            lan_ips=current_lan_ips(),
+            lan_scheme=LAN_SCHEME,
+            lan_port=LAN_PORT,
             pin=PIN,
             auth=AUTH_ENABLED,
             approval=APPROVAL_ENABLED,
@@ -648,7 +669,7 @@ def qr_code():
             abort(503)
         base = TUNNEL_URL
     else:
-        base = LAN_URL
+        base = current_lan_url()
     data = base + (f"/?token={PIN}" if AUTH_ENABLED and PIN else "/")
     img = qrcode.make(data, image_factory=qrcode.image.svg.SvgPathImage)
     buf = io.BytesIO()
@@ -780,16 +801,121 @@ def api_delete(filename):
 # --------------------------------------------------------------------------- #
 # Reseau / demarrage
 # --------------------------------------------------------------------------- #
-def get_local_ip() -> str:
+def _route_ip() -> str | None:
+    """IP de l'interface qui sort vers internet (route par defaut), ou None.
+
+    N'envoie aucun paquet : connect() en UDP ne fait que choisir l'interface
+    selon la table de routage. Avec plusieurs cartes, c'est celle qui porte la
+    route par defaut (souvent un VPN si un VPN est actif)."""
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
         s.connect(("8.8.8.8", 80))
-        ip = s.getsockname()[0]
+        return s.getsockname()[0]
     except OSError:
-        ip = "127.0.0.1"
+        return None
     finally:
         s.close()
-    return ip
+
+
+def _is_lan_ipv4(ip: str) -> bool:
+    """True si l'IP est une adresse LAN privee utilisable (exclut loopback,
+    link-local/APIPA et les IP publiques/VPN hors plages privees)."""
+    try:
+        a = ipaddress.ip_address(ip)
+    except ValueError:
+        return False
+    return a.version == 4 and a.is_private and not a.is_loopback and not a.is_link_local
+
+
+def _discover_ips() -> tuple[str, list]:
+    """Retourne (ip_principale, liste des IP LAN privees). Best-effort.
+
+    - L'IP principale est l'IP de la route internet si elle est privee ; sinon
+      (route via VPN/IP publique, ou hors-ligne) on bascule sur une vraie IP LAN.
+    - L'enumeration via getaddrinfo(hostname) est "au mieux" : si elle echoue ou
+      ne renvoie rien d'exploitable, on retombe proprement sur l'IP principale.
+    """
+    route = _route_ip()
+    candidates: list = []
+    try:
+        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+            candidates.append(info[4][0])
+    except OSError:
+        pass
+
+    lan: list = []
+    for ip in ([route] if route else []) + candidates:
+        if ip and _is_lan_ipv4(ip) and ip not in lan:
+            lan.append(ip)
+
+    if route and _is_lan_ipv4(route):
+        primary = route                 # cas normal : IP vers internet, privee
+    elif lan:
+        primary = lan[0]                # route = VPN/publique -> vraie IP LAN
+    elif route:
+        primary = route                 # rien de prive : mieux que loopback
+    else:
+        primary = "127.0.0.1"           # hors-ligne total
+    if _is_lan_ipv4(primary) and primary not in lan:
+        lan.insert(0, primary)
+    return primary, lan
+
+
+def _ip_snapshot() -> tuple[str, list]:
+    """(ip_principale, IP LAN) avec cache court (_IP_CACHE_TTL)."""
+    now = time.time()
+    with _ip_cache_lock:
+        if _ip_cache["primary"] and now - _ip_cache["ts"] < _IP_CACHE_TTL:
+            return _ip_cache["primary"], list(_ip_cache["ips"])
+    primary, ips = _discover_ips()
+    with _ip_cache_lock:
+        _ip_cache["primary"] = primary
+        _ip_cache["ips"] = ips
+        _ip_cache["ts"] = now
+    return primary, ips
+
+
+def get_local_ip() -> str:
+    """IP principale a annoncer (frais, sans cache : usage demarrage/cert)."""
+    return _discover_ips()[0]
+
+
+def current_lan_ips() -> list:
+    """IP LAN a afficher. Si --host vise une IP concrete, on n'annonce qu'elle."""
+    if HOST_PIN:
+        return [HOST_PIN]
+    return _ip_snapshot()[1]
+
+
+def current_lan_url() -> str:
+    """URL LAN courante (rafraichie via cache court, sauf --host fige)."""
+    if HOST_PIN:
+        return f"{LAN_SCHEME}://{HOST_PIN}:{LAN_PORT}"
+    return f"{LAN_SCHEME}://{_ip_snapshot()[0]}:{LAN_PORT}"
+
+
+def _choose_listen_ip(ips: list) -> str | None:
+    """Menu interactif : sur quelle IP ecouter (option --pick-host).
+
+    Retourne l'IP choisie, ou None pour "toutes les cartes". Si moins de deux
+    IP LAN sont disponibles, ne demande rien (None) : aucun friction sur un PC
+    a une seule carte."""
+    lan = [ip for ip in ips if _is_lan_ipv4(ip)]
+    if len(lan) < 2:
+        return None
+    print("\n  Plusieurs cartes reseau detectees. Sur quelle adresse ecouter ?")
+    print("    0) Toutes les cartes  [defaut]")
+    for i, ip in enumerate(lan, 1):
+        print(f"    {i}) {ip}")
+    try:
+        choice = input(f"  Ton choix [0-{len(lan)}, defaut 0] : ").strip()
+    except (EOFError, KeyboardInterrupt):
+        return None
+    if choice.isdigit():
+        n = int(choice)
+        if 1 <= n <= len(lan):
+            return lan[n - 1]
+    return None
 
 
 def ensure_cert(cert_path: str, key_path: str, ip: str) -> None:
@@ -895,7 +1021,10 @@ def _auto_shutdown(minutes: int) -> None:
 
 def print_banner(url: str, https: bool, port: int, no_qr: bool = False) -> None:
     scheme = "https" if https else "http"
-    local_url = f"{scheme}://127.0.0.1:{port}"
+    # Si l'ecoute est bridee sur une carte precise, 127.0.0.1 ne repond pas :
+    # l'acces local passe alors par cette IP.
+    local_host = HOST_PIN if (HOST_PIN and HOST_PIN != "127.0.0.1") else "127.0.0.1"
+    local_url = f"{scheme}://{local_host}:{port}"
 
     print("\n" + "=" * 50)
     print("  CROW-RELAY - partage de fichiers")
@@ -916,6 +1045,15 @@ def print_banner(url: str, https: bool, port: int, no_qr: bool = False) -> None:
         print("  (L'adresse de partage s'affichera dans quelques secondes)\n")
     else:
         print(f"\n  Acces reseau     : {url}")
+        # Plusieurs cartes (Ethernet + Wi-Fi...) : liste les autres adresses LAN
+        # pour que l'utilisateur sache sur quoi le partage est joignable.
+        others = [
+            f"{scheme}://{ip}:{port}"
+            for ip in current_lan_ips()
+            if f"://{ip}:" not in url
+        ]
+        if others:
+            print(f"  Autres adresses  : {', '.join(others)}")
         print(f"  Acces local      : {local_url}")
         if APPROVAL_ENABLED:
             print(f"  Panneau admin    : {url}/admin")
@@ -946,10 +1084,16 @@ def print_banner(url: str, https: bool, port: int, no_qr: bool = False) -> None:
 
 def main() -> None:
     global PIN, AUTH_ENABLED, APPROVAL_ENABLED, ADMIN_KEY, LAN_URL, TUNNEL_MODE, TUNNEL_URL, LOCAL_IP, _bootstrap_token
+    global LAN_SCHEME, LAN_PORT, HOST_PIN
 
     parser = argparse.ArgumentParser(description="Crow-Relay file transfer service")
     parser.add_argument("--host", default="0.0.0.0", help="Interface d'ecoute")
     parser.add_argument("--port", type=int, default=8000, help="Port d'ecoute")
+    parser.add_argument(
+        "--pick-host",
+        action="store_true",
+        help="Si plusieurs cartes reseau : demande sur quelle IP ecouter (LAN)",
+    )
     parser.add_argument("--pin", help="Code PIN d'acces (sinon genere aleatoirement)")
     parser.add_argument(
         "--no-pin",
@@ -1056,7 +1200,21 @@ def main() -> None:
     with _devices_lock:
         save_devices()
 
-    local_ip = get_local_ip()
+    # --host avec une IP concrete (ex: --host 192.168.1.50) : l'utilisateur
+    # choisit la carte ; on annonce exactement cette IP (et on ne la rafraichit
+    # pas). Avec 0.0.0.0 (defaut), on ecoute sur toutes les cartes et on detecte
+    # l'IP a annoncer dynamiquement.
+    if args.host not in ("", "0.0.0.0", "::"):
+        HOST_PIN = args.host
+    # --pick-host : si plusieurs cartes et qu'aucune n'est deja imposee, on
+    # demande sur laquelle ecouter. Le choix BORNE l'ecoute a cette carte
+    # (bind) et l'annonce. Ignore en mode tunnel.
+    if args.pick_host and not HOST_PIN and not TUNNEL_MODE:
+        chosen = _choose_listen_ip(current_lan_ips())
+        if chosen:
+            args.host = chosen
+            HOST_PIN = chosen
+    local_ip = HOST_PIN or get_local_ip()
     LOCAL_IP = local_ip
 
     ssl_context = None
@@ -1078,17 +1236,22 @@ def main() -> None:
     # Secure bloquerait les connexions locales (le navigateur refuse d'envoyer
     # un cookie Secure sur HTTP, même en LAN).
 
-    LAN_URL = f"{scheme}://{local_ip}:{args.port}"
+    LAN_SCHEME = scheme
+    LAN_PORT = args.port
+    LAN_URL = current_lan_url()
     print_banner(LAN_URL, args.https, args.port, no_qr=args.no_qr or args.tunnel)
 
     if not args.no_open:
         # Ouvre le panneau admin via un token à usage unique (la clé admin ne passe jamais par l'URL).
+        # Si on est bridé sur une carte precise, 127.0.0.1 n'ecoute pas : on
+        # ouvre alors sur l'IP bindee.
         _scheme = "https" if args.https else "http"
+        _open_host = HOST_PIN if (HOST_PIN and HOST_PIN != "127.0.0.1") else "127.0.0.1"
         if APPROVAL_ENABLED:
-            open_url = f"{_scheme}://127.0.0.1:{args.port}/admin/boot/{_bootstrap_token}"
+            open_url = f"{_scheme}://{_open_host}:{args.port}/admin/boot/{_bootstrap_token}"
         else:
             token_suffix = f"?token={PIN}" if AUTH_ENABLED and PIN else ""
-            open_url = f"{_scheme}://127.0.0.1:{args.port}/{token_suffix}"
+            open_url = f"{_scheme}://{_open_host}:{args.port}/{token_suffix}"
         threading.Timer(0.8, webbrowser.open_new_tab, args=[open_url]).start()
 
     if TUNNEL_MODE:

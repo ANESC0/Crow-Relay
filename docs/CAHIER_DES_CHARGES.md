@@ -92,6 +92,7 @@ sans câble, sans cloud, sans compte, sans application dédiée.
 - **Backend** : Python 3.10+, Flask (`app.py`), servi par cheroot (serveur WSGI de production, multi-thread).
 - **Frontend** : HTML/CSS/JS sans framework (`templates/index.html`, `login.html`).
 - **Stockage** : dossier local `shared/` (configurable via `CROW_RELAY_SHARE_DIR`).
+- **Réseau** : écoute sur toutes les cartes (`0.0.0.0`) par défaut ; détection auto de l'IP LAN à annoncer (évite les IP de VPN), **rafraîchie dynamiquement** si l'IP change (DHCP, VPN) sans relancer ; choix d'une carte précise via `--host <ip>` ou `--pick-host`.
 - **QR code** : librairie `qrcode` (ASCII pour le terminal, SVG pour la page).
 
 ### Points d'API
@@ -121,7 +122,8 @@ sans câble, sans cloud, sans compte, sans application dédiée.
 
 | Paramètre            | Type         | Défaut       | Description                              |
 | -------------------- | ------------ | ------------ | ---------------------------------------- |
-| `--host`             | option CLI   | `0.0.0.0`    | Interface d'écoute.                      |
+| `--host`             | option CLI   | `0.0.0.0`    | Interface d'écoute. Une IP concrète n'écoute/annonce que cette carte. |
+| `--pick-host`        | option CLI   | désactivé    | Si plusieurs cartes : menu interactif pour choisir l'IP d'écoute (LAN). |
 | `--port`             | option CLI   | `8000`       | Port d'écoute.                           |
 | `--pin`              | option CLI   | (généré)     | Code PIN imposé.                         |
 | `--no-pin`           | option CLI   | désactivé    | Désactive l'authentification.           |

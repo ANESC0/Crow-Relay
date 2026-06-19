@@ -85,7 +85,10 @@ sans aucune restriction. Réservé aux réseaux 100 % contrôlés et de confianc
 | Accès depuis internet (réseau distant) | `--tunnel` (PIN + approbation imposés) |
 | Fichiers confidentiels via tunnel | Chiffrer les fichiers avant upload (GPG, zip chiffré) |
 | Réseau 100 % contrôlé, zéro invité | `--no-approval` acceptable |
+| Hôte sur plusieurs réseaux (un seul de confiance) | `--host <IP de la carte de confiance>` pour n'exposer que ce réseau |
 | Données médicales, légales, credentials | Utiliser un outil E2E dédié (Signal, ProtonDrive) |
+
+> **Hôte multi-cartes** : par défaut le service écoute sur **toutes** les cartes (`0.0.0.0`) — pratique, mais s'il est aussi connecté à un réseau non fiable, il y est joignable (le PIN et l'approbation restent la protection). Pour réduire la surface d'exposition, limiter l'écoute à une carte précise avec `--host <IP>` ou le menu `--pick-host`.
 
 ---
 
