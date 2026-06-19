@@ -654,7 +654,9 @@
     async function checkAccess() {
       if (!APPROVAL || IS_ADMIN) { gate.classList.remove("show"); loadFiles(); return; }
       try {
-        const s = await fetch("/api/access-status").then(r => r.json());
+        const r = await fetch("/api/access-status");
+        if (r.status === 429) { startPolling(); return; }
+        const s = await r.json();
         if (s.status === "approved") {
           gate.classList.remove("show");
           const changed = !_lastPerms || _lastPerms.can_send !== s.can_send || _lastPerms.can_receive !== s.can_receive;
@@ -662,19 +664,19 @@
             _lastPerms = { can_send: s.can_send, can_receive: s.can_receive };
             applyAccess(s);
           }
-          startPolling();
+          startPolling(10000);
         } else if (s.status === "denied") {
           showGate("denied");
         } else if (s.status === "pending") {
-          showGate("waiting"); startPolling();
+          showGate("waiting"); startPolling(3000);
         } else {
-          showGate("pending"); startPolling();
+          showGate("pending"); startPolling(3000);
         }
       } catch { showGate("error"); if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
     }
-    function startPolling() {
-      if (pollTimer) return;
-      pollTimer = setInterval(checkAccess, 3000);
+    function startPolling(interval) {
+      if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+      pollTimer = setInterval(checkAccess, interval ?? 3000);
     }
     document.addEventListener("DOMContentLoaded", () => {
       if (APPROVAL && !IS_ADMIN) showGate("loading");
