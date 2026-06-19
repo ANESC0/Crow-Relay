@@ -1170,7 +1170,8 @@ def main() -> None:
         raise SystemExit(0)
 
     signal.signal(signal.SIGTERM, _shutdown)
-    signal.signal(signal.SIGHUP, _shutdown)
+    if hasattr(signal, "SIGHUP"):
+        signal.signal(signal.SIGHUP, _shutdown)
 
     try:
         server.start()
