@@ -1,0 +1,36 @@
+# Fichiers transferes
+shared/
+devices.json
+devices.json.tmp
+
+# Certificats TLS auto-signes
+cert.pem
+key.pem
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+*.egg-info/
+.Python
+
+# Generés
+static/icon.ico
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Dev environment
+.claude/
+CLAUDE.md
+
+# IDE
+.vscode/
+.idea/
+
+
+# Notes personnelles
+docs/TODO.txt
