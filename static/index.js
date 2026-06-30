@@ -96,9 +96,9 @@ const overlay = $("#overlay");
 let tunnelQrLoaded = false;
 
 function showView(which) {
-  $("#viewLan").style.display     = which === "lan"    ? "" : "none";
-  $("#viewTunnel").style.display  = which === "tunnel" ? "" : "none";
-  $("#viewNoConn").style.display  = which === "none"   ? "" : "none";
+  $("#viewLan").style.display     = which === "lan"    ? "block" : "none";
+  $("#viewTunnel").style.display  = which === "tunnel" ? "block" : "none";
+  $("#viewNoConn").style.display  = which === "none"   ? "block" : "none";
 }
 
 function loadTunnelQr(tunnelUrl) {
@@ -132,7 +132,7 @@ async function initModal() {
 
   if (_cfg.auth) {
     const pinBox = $("#pinBox");
-    if (pinBox) pinBox.style.display = (same_network || is_admin || tunnel_mode) ? "" : "none";
+    if (pinBox) pinBox.style.display = (same_network || is_admin || tunnel_mode) ? "block" : "none";
   }
 
   if (tunnel_mode) {
