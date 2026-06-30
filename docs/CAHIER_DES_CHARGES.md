@@ -90,7 +90,7 @@ sans câble, sans cloud, sans compte, sans application dédiée.
 ```
 
 - **Backend** : Python 3.10+, Flask (`app.py`), servi par cheroot (serveur WSGI de production, multi-thread).
-- **Frontend** : HTML/CSS/JS sans framework (`templates/index.html`, `login.html`).
+- **Frontend** : HTML/CSS/JS sans framework. Templates Jinja2 (`templates/`), CSS et JS en fichiers statiques séparés (`static/`). CSP stricte sans `unsafe-inline`.
 - **Stockage** : dossier local `shared/` (configurable via `CROW_RELAY_SHARE_DIR`).
 - **Réseau** : écoute sur toutes les cartes (`0.0.0.0`) par défaut ; détection auto de l'IP LAN à annoncer (évite les IP de VPN) ; un rechargement de page suffit si l'IP change (DHCP, VPN) — pas besoin de relancer le service ; choix d'une carte précise via `--host <ip>` ou `--pick-host`.
 - **QR code** : librairie `qrcode` (ASCII pour le terminal, SVG pour la page).
@@ -144,6 +144,7 @@ sans câble, sans cloud, sans compte, sans application dédiée.
 | `CROW_RELAY_SHARE_DIR`     | env          | `./shared`   | Dossier de stockage.                     |
 | `CROW_RELAY_MAX_MB`        | env          | illimité     | Taille max d'un envoi (Mo).              |
 | `CROW_RELAY_DEVICES_FILE`  | env          | (auto)       | Chemin vers le fichier JSON des appareils connus. |
+| `CROW_RELAY_OWNERS_FILE`   | env          | (auto)       | Chemin vers le fichier JSON de propriété des fichiers. |
 
 ## 9. Critères d'acceptation
 

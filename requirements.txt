@@ -1,7 +1,9 @@
 Flask>=3.0
+werkzeug>=3.0
 flask-limiter>=3.0
 cheroot>=9.0
 qrcode>=7.4
+# Pillow : requis par qrcode pour la génération PNG (non utilisé directement par app.py qui utilise SVG)
 Pillow>=9.0
 # Requis uniquement pour l'option --https (certificat auto-signe)
 cryptography>=41

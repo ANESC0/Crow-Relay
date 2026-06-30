@@ -110,6 +110,7 @@ Variables d'environnement :
 | `CROW_RELAY_SHARE_DIR` | Dossier où sont stockés les fichiers          | `<dossier app>/shared` |
 | `CROW_RELAY_MAX_MB`    | Taille max d'un envoi en Mo (vide = illimité) | illimité              |
 | `CROW_RELAY_DEVICES_FILE` | Chemin du fichier de registre des appareils (vidé à chaque lancement) | `<dossier app>/devices.json` |
+| `CROW_RELAY_OWNERS_FILE`  | Chemin du fichier de propriété des fichiers (qui a uploadé quoi)      | `<dossier app>/file_owners.json` |
 
 ---
 

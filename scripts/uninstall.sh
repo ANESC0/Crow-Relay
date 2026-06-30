@@ -17,8 +17,22 @@ else
 fi
 
 echo ""
-read -rp "  Supprimer aussi le venv (.venv) ? [o/N] " rep
-if [[ "$rep" =~ ^[oO]$ ]]; then
+read -rp "  Supprimer les fichiers de données (devices.json, file_owners.json) ? [o/N] " rep_data
+if [[ "$rep_data" =~ ^[oO]$ ]]; then
+    rm -f "$DIR/devices.json"      && echo "  devices.json supprimé."      || true
+    rm -f "$DIR/file_owners.json"  && echo "  file_owners.json supprimé."  || true
+fi
+
+echo ""
+read -rp "  Supprimer les certificats TLS (cert.pem, key.pem) ? [o/N] " rep_certs
+if [[ "$rep_certs" =~ ^[oO]$ ]]; then
+    rm -f "$DIR/cert.pem" && echo "  cert.pem supprimé." || true
+    rm -f "$DIR/key.pem"  && echo "  key.pem supprimé."  || true
+fi
+
+echo ""
+read -rp "  Supprimer aussi le venv (.venv) ? [o/N] " rep_venv
+if [[ "$rep_venv" =~ ^[oO]$ ]]; then
     rm -rf "$DIR/.venv" && echo "  Environnement virtuel supprimé."
 fi
 

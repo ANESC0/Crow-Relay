@@ -55,8 +55,13 @@ class TestDownloadAndList:
 
 class TestDelete:
     def test_delete_file(self, approved_device):
+        """L'uploader peut supprimer son propre fichier."""
+        approved_device.post(
+            "/api/upload",
+            content_type="multipart/form-data",
+            data={"files": (io.BytesIO(b"data"), "todelete.txt")},
+        )
         path = os.path.join(crow.SHARE_DIR, "todelete.txt")
-        open(path, "w").close()
         r = approved_device.post("/api/delete/todelete.txt")
         assert r.status_code == 200
         assert not os.path.exists(path)
@@ -64,3 +69,116 @@ class TestDelete:
     def test_delete_nonexistent_returns_404(self, approved_device):
         r = approved_device.post("/api/delete/ghost.txt")
         assert r.status_code == 404
+
+    def test_delete_other_user_file_forbidden(self, approved_device):
+        """Un device ne peut pas supprimer un fichier uploadé par un autre."""
+        crow.APPROVAL_ENABLED = True
+        other_id = "otherdevice999"
+        crow._devices[other_id] = {
+            "name": "other",
+            "status": "approved",
+            "can_send": True,
+            "can_receive": True,
+            "mac": "",
+            "first_seen": 0.0,
+            "last_seen": 0.0,
+        }
+        with crow.app.test_client() as other:
+            other.set_cookie("crow_relay_device", other_id)
+            other.post(
+                "/api/upload",
+                content_type="multipart/form-data",
+                data={"files": (io.BytesIO(b"secret"), "others_file.txt")},
+            )
+        r = approved_device.post("/api/delete/others_file.txt")
+        assert r.status_code == 403
+
+    def test_can_delete_true_for_owner_in_file_list(self, approved_device):
+        """can_delete=True pour le fichier uploadé par le device courant."""
+        approved_device.post(
+            "/api/upload",
+            content_type="multipart/form-data",
+            data={"files": (io.BytesIO(b"data"), "mine.txt")},
+        )
+        files = approved_device.get("/api/files").json
+        f = next(x for x in files if x["name"] == "mine.txt")
+        assert f["can_delete"] is True
+
+    def test_can_delete_false_for_other_owners_file(self, approved_device):
+        """can_delete=False quand le fichier appartient à un autre device."""
+        crow.APPROVAL_ENABLED = True
+        other_id = "stranger111"
+        crow._devices[other_id] = {
+            "name": "stranger",
+            "status": "approved",
+            "can_send": True,
+            "can_receive": True,
+            "mac": "",
+            "first_seen": 0.0,
+            "last_seen": 0.0,
+        }
+        with crow.app.test_client() as other:
+            other.set_cookie("crow_relay_device", other_id)
+            other.post(
+                "/api/upload",
+                content_type="multipart/form-data",
+                data={"files": (io.BytesIO(b"nope"), "theirs.txt")},
+            )
+        files = approved_device.get("/api/files").json
+        f = next(x for x in files if x["name"] == "theirs.txt")
+        assert f["can_delete"] is False
+
+    def test_admin_can_delete_any_file(self, client):
+        """L'admin peut supprimer n'importe quel fichier."""
+        crow.APPROVAL_ENABLED = True
+        crow.ADMIN_KEY = "adminkey"
+        # Upload par un user normal
+        did = "normaluser"
+        crow._devices[did] = {
+            "name": "user",
+            "status": "approved",
+            "can_send": True,
+            "can_receive": True,
+            "mac": "",
+            "first_seen": 0.0,
+            "last_seen": 0.0,
+        }
+        user = client
+        user.set_cookie("crow_relay_device", did)
+        user.post(
+            "/api/upload",
+            content_type="multipart/form-data",
+            data={"files": (io.BytesIO(b"content"), "user_file.txt")},
+        )
+        # L'admin supprime via son propre client
+        with crow.app.test_client() as admin:
+            admin.post("/admin/login", data={"key": "adminkey"})
+            r = admin.post("/api/delete/user_file.txt")
+            assert r.status_code == 200
+
+    def test_admin_can_delete_all_in_file_list(self, client):
+        """can_delete=True pour l'admin sur tous les fichiers."""
+        crow.APPROVAL_ENABLED = True
+        crow.ADMIN_KEY = "adminkey"
+        did = "uploader"
+        crow._devices[did] = {
+            "name": "up",
+            "status": "approved",
+            "can_send": True,
+            "can_receive": True,
+            "mac": "",
+            "first_seen": 0.0,
+            "last_seen": 0.0,
+        }
+        user = client
+        user.set_cookie("crow_relay_device", did)
+        user.post(
+            "/api/upload",
+            content_type="multipart/form-data",
+            data={"files": (io.BytesIO(b"x"), "admin_sees.txt")},
+        )
+        with crow.app.test_client() as admin:
+            admin.post("/admin/login", data={"key": "adminkey"})
+            files = admin.get("/api/files").json
+            f = next(x for x in files if x["name"] == "admin_sees.txt")
+            assert f["can_delete"] is True

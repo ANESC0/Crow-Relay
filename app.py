@@ -67,6 +67,11 @@ DEVICES_FILE = os.environ.get(
     "CROW_RELAY_DEVICES_FILE", os.path.join(BASE_DIR, "devices.json")
 )
 
+# Registre des propriétaires de fichiers (device_id ou "admin").
+OWNERS_FILE = os.environ.get(
+    "CROW_RELAY_OWNERS_FILE", os.path.join(BASE_DIR, "file_owners.json")
+)
+
 # Taille maximale d'un upload (par defaut illimite). En octets.
 _max_mb = os.environ.get("CROW_RELAY_MAX_MB")
 
@@ -147,8 +152,8 @@ def set_security_headers(response):
     response.headers["X-Robots-Tag"] = "noindex, nofollow"
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
-        "script-src 'self' 'unsafe-inline'; "
-        "style-src 'self' 'unsafe-inline'; "
+        "script-src 'self'; "
+        "style-src 'self'; "
         "img-src 'self' data:; "
         "connect-src 'self'"
     )
@@ -164,6 +169,8 @@ def set_security_headers(response):
 _devices_lock = threading.Lock()
 _devices: dict = {}
 _upload_lock = threading.Lock()
+_owners_lock = threading.Lock()
+_file_owners: dict = {}
 _activity_log: list = []
 _activity_lock = threading.Lock()
 # Token à usage unique généré au démarrage pour ouvrir le panneau admin sans
@@ -178,6 +185,31 @@ def save_devices() -> None:
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(_devices, f, indent=2, ensure_ascii=False)
     os.replace(tmp, DEVICES_FILE)
+
+
+def save_owners() -> None:
+    """Ecriture atomique des propriétaires. Doit etre appelee avec _owners_lock acquis."""
+    tmp = OWNERS_FILE + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(_file_owners, f, indent=2, ensure_ascii=False)
+    os.replace(tmp, OWNERS_FILE)
+
+
+def load_owners() -> None:
+    """Charge _file_owners depuis le disque, nettoie les entrées orphelines.
+    Doit etre appelee avec _owners_lock acquis."""
+    global _file_owners
+    if not os.path.exists(OWNERS_FILE):
+        return
+    try:
+        with open(OWNERS_FILE, encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, dict):
+            return
+        existing = set(os.listdir(SHARE_DIR)) if os.path.isdir(SHARE_DIR) else set()
+        _file_owners = {k: v for k, v in data.items() if k in existing}
+    except (OSError, json.JSONDecodeError):
+        pass
 
 
 def get_device():
@@ -736,7 +768,14 @@ def api_network_info():
 def api_files():
     if not device_allowed("can_receive"):
         return jsonify({"error": "Acces non autorise"}), 403
-    return jsonify(list_files())
+    is_admin = bool(session.get("is_admin"))
+    did = get_device()[0] if not is_admin else None
+    files = list_files()
+    with _owners_lock:
+        for f in files:
+            owner = _file_owners.get(f["name"])
+            f["can_delete"] = is_admin or bool(did and owner == did)
+    return jsonify(files)
 
 
 @app.route("/api/activity")
@@ -759,6 +798,8 @@ def api_upload():
     if "files" not in request.files:
         return jsonify({"error": "Aucun fichier recu"}), 400
 
+    uploader = "admin" if session.get("is_admin") else (get_device()[0] or None)
+
     saved = []
     for storage in request.files.getlist("files"):
         if not storage or storage.filename == "":
@@ -767,9 +808,14 @@ def api_upload():
         with _upload_lock:
             dest = unique_path(SHARE_DIR, filename)
             storage.save(dest)
-        saved.append(os.path.basename(dest))
-        app.logger.info("UPLOAD  %s  from %s", os.path.basename(dest), _client_ip())
-        _add_activity("upload", os.path.basename(dest))
+        final_name = os.path.basename(dest)
+        if uploader:
+            with _owners_lock:
+                _file_owners[final_name] = uploader
+                save_owners()
+        saved.append(final_name)
+        app.logger.info("UPLOAD  %s  from %s", final_name, _client_ip())
+        _add_activity("upload", final_name)
 
     if not saved:
         return jsonify({"error": "Aucun fichier valide"}), 400
@@ -808,6 +854,9 @@ def api_admin_clear_files():
                     deleted += 1
             except OSError:
                 pass
+    with _owners_lock:
+        _file_owners.clear()
+        save_owners()
     return jsonify({"deleted": deleted})
 
 
@@ -826,7 +875,20 @@ def api_delete(filename):
     if not device_allowed("can_send"):
         return jsonify({"error": "Acces non autorise"}), 403
     safe = secure_filename(filename)
+    if not safe:
+        abort(404)
     path = os.path.join(SHARE_DIR, safe)
+    # Existence/symlink check en premier : 404 > 403 sémantiquement et évite
+    # une double acquisition du lock dans le cas nominal.
+    if os.path.islink(path) or not os.path.isfile(path):
+        abort(404)
+    is_admin = bool(session.get("is_admin"))
+    if not is_admin:
+        did, _ = get_device()
+        with _owners_lock:
+            owner = _file_owners.get(safe)
+        if not did or owner != did:
+            return jsonify({"error": "Suppression non autorisee"}), 403
     with _upload_lock:
         if os.path.islink(path) or not os.path.isfile(path):
             abort(404)
@@ -834,6 +896,9 @@ def api_delete(filename):
             os.remove(path)
         except FileNotFoundError:
             abort(404)
+    with _owners_lock:
+        _file_owners.pop(safe, None)
+        save_owners()
     _add_activity("delete", safe)
     return jsonify({"deleted": safe})
 
@@ -1247,6 +1312,9 @@ def main() -> None:
         _bootstrap_token = secrets.token_urlsafe(16)
 
     os.makedirs(SHARE_DIR, exist_ok=True)
+    with _owners_lock:
+        load_owners()
+        save_owners()
     with _devices_lock:
         save_devices()
 

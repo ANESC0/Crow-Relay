@@ -2,6 +2,8 @@
 shared/
 devices.json
 devices.json.tmp
+file_owners.json
+file_owners.json.tmp
 
 # Certificats TLS auto-signes
 cert.pem

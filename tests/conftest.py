@@ -21,8 +21,10 @@ def reset_state(tmp_path):
     crow._bootstrap_token = None
     crow.SHARE_DIR = str(tmp_path / "shared")
     crow.DEVICES_FILE = str(tmp_path / "devices.json")
+    crow.OWNERS_FILE = str(tmp_path / "file_owners.json")
     crow._devices.clear()
     crow._login_attempts.clear()
+    crow._file_owners.clear()
     os.makedirs(crow.SHARE_DIR, exist_ok=True)
     crow.app.config["TESTING"] = True
     crow.app.config["RATELIMIT_ENABLED"] = False
@@ -33,6 +35,7 @@ def reset_state(tmp_path):
     yield
     crow._devices.clear()
     crow._login_attempts.clear()
+    crow._file_owners.clear()
 
 
 @pytest.fixture
